@@ -16,6 +16,7 @@ namespace VisualVersionofService
     public partial class Form1 : Form
     {
         public static Form1 MainForm;
+
         public Form1()
         {
             InitializeComponent();
@@ -25,6 +26,7 @@ namespace VisualVersionofService
             this.DiagnosticListView.View = View.List;
             MainForm = this;
         }
+
         private void StartButton_Click(object sender, EventArgs e)
         {
             Task.Run(() => OnStart());
@@ -35,7 +37,7 @@ namespace VisualVersionofService
             Task.Run(() => OnStop());
         }
 
-        public void DiagnosticOut(string message)
+        private void DiagnosticOut(string message)
         {
             try
             {
@@ -45,15 +47,17 @@ namespace VisualVersionofService
                     MainForm.DiagnosticListView.Items.Add(item);
                 });
             }
-            catch(Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
 
         //above is winforms specific code. below should be portable to service.
         private NetworkStream CamstarStream;//Stream for the main connection to and from camstar
+
         private TcpClient CamstarClient;//Main Connection to and from camstar
-        public TopicPublisher TestPublisher;//publishes to the Pac-Light Outbound topic
+        private TopicPublisher TestPublisher;//publishes to the Pac-Light Outbound topic
         private TopicSubscriber MainInputSubsriber;//Main subscriber subs to SNP.Inbound
         private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
+        private UdpClient MDEClient;
 
         private const string SubTopicName = "SNP.Inbound";
         private const string TestTopicName = "SNP.Outbound";
@@ -69,11 +73,14 @@ namespace VisualVersionofService
         private const string ENG_DBUserID = "camstaruser";
         private const string ENG_DBPassword = "c@mst@rus3r";
         private const string ENG_DBInitialCatalog = "Pac-LiteDb";
+        private const string MDEIP = "0.0.0.0";
         private const Int32 CamstarPort = 2881;
-
-        List<Disposable> ThingsToDispose;//whenever you make a connection/connection based stream add it to this.
+        private const Int32 MDEClientPort = 11000;
+        private const Int32 MDEPort = 0;
+        private List<Disposable> ThingsToDispose;//whenever you make a connection/connection based stream add it to this.
 
         private delegate void SetTextCallback(string text);
+
         /// <summary>
         ///  called whenever a mqtt message from SNP is received
         /// </summary>
@@ -91,17 +98,17 @@ namespace VisualVersionofService
                     {
                         //run the procedure in the background dont await as we dont need the return values as it should be void.
                         case 1:
-                            Task.Run(() => FifteenMinutePacket(Message));
+                            Task.Run(() => IndexSummaryPacket(Message));
                             break;
+
                         case 2:
                             Task.Run(() => DowntimePacket(Message));
                             break;
+
                         case 3:
-                            Task.Run(() => PartErrorPacket(Message));
+                            Task.Run(() => ShortTimeStatisticPacket(Message));
                             break;
-                        case 4:
-                            Task.Run(() => MachineErrorPacket(Message));
-                            break;
+
                         case 252:
                             Task.Run(() => CamstarTestPacket(Message));
                             break;
@@ -113,7 +120,13 @@ namespace VisualVersionofService
                         case 254:
                             Task.Run(() => SQLTestPacket(Message));
                             break;
+
+                        default:
+                            break;
                     }
+                    break;
+
+                default:
                     break;
             }
         }
@@ -121,7 +134,7 @@ namespace VisualVersionofService
         /// <summary>
         /// SQL section of the Fifteen Minut Packet Inserts the data into a table named after the machine
         /// </summary>
-        private void SQLFifteenMinute(string Message)
+        private void SQLIndexSummary(string Message)
         {
             try //try loop in case command fails.
             {
@@ -189,10 +202,11 @@ namespace VisualVersionofService
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
+
         /// <summary>
         /// Camstar section of the Fifteen Minut Packet sends a throughput packet for the resource named for the machine.
         /// </summary>
-        private void CamstarFifteenMinute(string Message)
+        private void CamstarIndexSummary(string Message)
         {
             try
             {
@@ -217,21 +231,19 @@ namespace VisualVersionofService
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
+
         /// <summary>
         /// Summary packet received every fifteen minutes from the plc.
         /// </summary>
-        private void FifteenMinutePacket(string Message)
+        private void IndexSummaryPacket(string Message)
         {
             DiagnosticOut("Fifteen Minute Packet Received!");
-            Task.Run(() => SQLFifteenMinute(Message));
-            Task.Run(() => CamstarFifteenMinute(Message));
+            Task.Run(() => SQLIndexSummary(Message));
+            Task.Run(() => CamstarIndexSummary(Message));
         }
-        /// <summary>
-        ///  Packet sent every 15 minutes to sumerize those fifteen minutes.
-        /// </summary>
+
         private void SQLDownTimePacket(string Message)
         {
-
             try //try loop in case command fails.
             {
                 string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
@@ -301,26 +313,75 @@ namespace VisualVersionofService
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
+
+        /// <summary>
+        ///  Packet sent each time there is a Downtime received from SNP
+        /// </summary>
         private void DowntimePacket(string Message)
         {
             DiagnosticOut("DownTime Packet Received!");
             Task.Run(() => SQLDownTimePacket(Message));//dont care about return.
         }
-        /// <summary>
-        ///  Packet sent each time there is a Part error
-        /// </summary>
-        private void PartErrorPacket(string Message)
-        {
-            DiagnosticOut("Part Error Packet Received!");
 
+        /// <summary>
+        ///  Packet sent at each index
+        /// </summary>
+        private void ShortTimeStatisticPacket(string Message)
+        {
+            DiagnosticOut("Short Time Statistic Packet Received!");
+            Task.Run(() => SQLShortTimeStatisticPacket(Message));
+            Task.Run(() => MDEShortTimeStatisticPacket(Message));
         }
-        /// <summary>
-        ///  Packet sent each time there is a machine hardware error
-        /// </summary>
-        private void MachineErrorPacket(string Message)
-        {
-            DiagnosticOut("Machine Error Packet Received!");
 
+        /// <summary>
+        ///  Packet sent at each index to sql
+        /// </summary>
+        private void SQLShortTimeStatisticPacket(string Message)
+        {
+            try //try loop in case command fails.
+            {
+                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
+                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
+                StringBuilder SQLStringBuilder = new StringBuilder();
+                SQLStringBuilder.Append("INSERT INTO " + ReceivedPacket["Machine"].ToString() + "ShortTimeStatistics (");
+                IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+                string KeySection = "[";
+                string ValueSection = "";
+                foreach (string key in keys)//foreach key
+                {
+                    if (key != "Machine")//except machine as it is used as the table name.
+                    {
+                        KeySection += key + "], [";//Make a key
+                        ValueSection += "@" + key + ", ";//and value Reference to be replaced later
+                    }
+                }
+                KeySection += "MachineID] ";
+                ValueSection += "MachineID ";
+                SQLStringBuilder.Append(KeySection + ")");
+                SQLStringBuilder.Append("SELECT " + ValueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
+                string SQLString = SQLStringBuilder.ToString();//convert to string
+                using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
+                {
+                    foreach (string key in keys)//foreach key
+                    {
+                        if (key != "Machine")
+                        {
+                            command.Parameters.AddWithValue("@" + key, 1 == Convert.ToInt32(ReceivedPacket[key]));
+                        }
+                    }
+                    command.Parameters.AddWithValue("@Machine", ReceivedPacket["Machine"].ToString());
+                    int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
+                    DiagnosticOut(rowsAffected + " row(s) inserted");//logit
+                }
+            }
+            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+        }
+
+        /// <summary>
+        ///  Packet sent at each index to MDE over UDP
+        /// </summary>
+        private void MDEShortTimeStatisticPacket(string Message)
+        {
         }
 
         /// <summary>
@@ -330,7 +391,7 @@ namespace VisualVersionofService
         {
             DiagnosticOut("CamstarTestPacket Received!");
             try
-            {                                         // i consider you warned below is a thruput packet it is going to be mostly hardcoded for these packets.
+            {
                 string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
                 JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
                 StringBuilder PacketStringBuilder = new StringBuilder();
@@ -506,16 +567,33 @@ namespace VisualVersionofService
         }
 
         /// <summary>
+        /// Collection of UDP Connection setup
+        /// </summary>
+        private void UDPConnections()
+        {
+            DiagnosticOut("Connecting to MDE");
+            try
+            {
+                MDEClient = new UdpClient(MDEClientPort);
+                MDEClient.Connect(MDEIP, MDEPort);
+                ThingsToDispose.Add(new Disposable(nameof(MDEClient), MDEClient));
+                ThingsToDispose.Add(new Disposable(nameof(CamstarStream), CamstarStream));
+            }
+            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+        }
+
+        /// <summary>
         /// Call On stop of service
         /// </summary>
         private void OnStop()
         {
-            foreach(Disposable disposable in ThingsToDispose)
+            MDEClient.Close();//close UDP connections to.
+            foreach (Disposable disposable in ThingsToDispose)
             {
                 try
                 {
                     disposable.Dispose();//dispose of connections on stop they will be reestablished on start.
-                    DiagnosticOut(disposable.Name+"Has been Disconected and Disposed");
+                    DiagnosticOut(disposable.Name + "Has been Disconected and Disposed");
                 }
                 catch (Exception ex) { DiagnosticOut(disposable.Name + ex.ToString()); }
             }
@@ -530,6 +608,7 @@ namespace VisualVersionofService
             Task.Run(() => MQTTConnections());//open all MQTT Connections
             Task.Run(() => SQLConnections());//open alll SQL Connections
             Task.Run(() => TCPConnections());//open all TCPConnections
+            Task.Run(() => UDPConnections());//open all UDP Connections
         }
     }
 }
