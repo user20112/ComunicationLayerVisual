@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
@@ -73,10 +74,11 @@ namespace VisualVersionofService
         private const string ENG_DBUserID = "camstaruser";
         private const string ENG_DBPassword = "c@mst@rus3r";
         private const string ENG_DBInitialCatalog = "Pac-LiteDb";
-        private const string MDEIP = "0.0.0.0";
+        private const string MDEIP = "10.197.18.163";
         private const Int32 CamstarPort = 2881;
         private const Int32 MDEClientPort = 11000;
         private const Int32 MDEPort = 0;
+        private const Int32 MDEOutPort = 12000;
         private List<Disposable> ThingsToDispose;//whenever you make a connection/connection based stream add it to this.
 
         private delegate void SetTextCallback(string text);
@@ -228,6 +230,24 @@ namespace VisualVersionofService
                 PacketStringBuilder.Append("]]></__name></ResourceGroup><UOM><__name><![CDATA[");
                 PacketStringBuilder.Append(ReceivedPacket["UOM"]);//UOM
                 PacketStringBuilder.Append("]]></__name>/</UOM></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
+                byte[] Bytes = Encoding.ASCII.GetBytes(PacketStringBuilder.ToString());
+                CamstarStream.Write(Bytes, 0, Bytes.Count());
+            }
+            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            try
+            {
+                string msg;
+                byte[] data = new byte[1024];
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    int numBytesRead;
+                    while ((numBytesRead = CamstarStream.Read(data, 0, data.Length)) > 0)
+                    {
+                        ms.Write(data, 0, numBytesRead);
+                    }
+                    msg = Encoding.ASCII.GetString(ms.ToArray(), 0, (int)ms.Length);
+                    DiagnosticOut(msg);
+                }
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
@@ -382,6 +402,69 @@ namespace VisualVersionofService
         /// </summary>
         private void MDEShortTimeStatisticPacket(string Message)
         {
+            List<byte> BytesToSend = new List<byte>();
+            List<bool> Bits = new List<bool>();
+            string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
+            JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
+            int x = 0;
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            BytesToSend.Add((byte)'~');
+            for (int Index = 0; Index < Bits.Count; Index += 8)
+            {
+                BytesToSend.Add(ConvertBoolArrayToByte(Bits.ToArray()));
+            }
+            for (int y = 0; y < Bits.Count; y++)
+            {
+                if (Bits[y])
+                    DiagnosticOut("True");
+                else
+                    DiagnosticOut("False");
+            }
+            MDEClient.Send(BytesToSend.ToArray(), BytesToSend.Count, MDEIP, MDEClientPort);
         }
 
         /// <summary>
@@ -574,10 +657,8 @@ namespace VisualVersionofService
             DiagnosticOut("Connecting to MDE");
             try
             {
-                MDEClient = new UdpClient(MDEClientPort);
-                MDEClient.Connect(MDEIP, MDEPort);
+                MDEClient = new UdpClient(MDEOutPort);
                 ThingsToDispose.Add(new Disposable(nameof(MDEClient), MDEClient));
-                ThingsToDispose.Add(new Disposable(nameof(CamstarStream), CamstarStream));
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
@@ -609,6 +690,33 @@ namespace VisualVersionofService
             Task.Run(() => SQLConnections());//open alll SQL Connections
             Task.Run(() => TCPConnections());//open all TCPConnections
             Task.Run(() => UDPConnections());//open all UDP Connections
+        }
+
+        private bool[] ConvertByteToBoolArray(byte b)
+        {
+            bool[] result = new bool[8];
+            // check each bit in the byte. if 1 set to true, if 0 set to false
+            for (int i = 0; i < 8; i++)
+                result[i] = (b & (1 << i)) == 0 ? false : true;
+            // reverse the array
+            Array.Reverse(result);
+            return result;
+        }
+
+        private byte ConvertBoolArrayToByte(bool[] source)
+        {
+            byte result = 0;
+            // This assumes the array never contains more than 8 elements!
+            int index = 8 - source.Length;
+            // Loop through the array
+            foreach (bool b in source)
+            {
+                // if the element is 'true' set the bit at that position
+                if (b)
+                    result |= (byte)(1 << (7 - index));
+                index++;
+            }
+            return result;
         }
     }
 }
