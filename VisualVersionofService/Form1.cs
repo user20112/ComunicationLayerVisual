@@ -7,7 +7,6 @@ using System.Data.SqlClient;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using VisualVersionofService.Comunications;
@@ -224,14 +223,15 @@ namespace VisualVersionofService
         private void FifteenMinutePacket(string Message)
         {
             DiagnosticOut("Fifteen Minute Packet Received!");
-            SQLFifteenMinute(Message);
-            CamstarFifteenMinute(Message);
+            Task.Run(() => SQLFifteenMinute(Message));
+            Task.Run(() => CamstarFifteenMinute(Message));
         }
         /// <summary>
         ///  Packet sent every 15 minutes to sumerize those fifteen minutes.
         /// </summary>
-        private void DowntimePacket(string Message)
+        private void SQLDownTimePacket(string Message)
         {
+
             try //try loop in case command fails.
             {
                 string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
@@ -301,11 +301,17 @@ namespace VisualVersionofService
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
+        private void DowntimePacket(string Message)
+        {
+            DiagnosticOut("DownTime Packet Received!");
+            Task.Run(() => SQLDownTimePacket(Message));//dont care about return.
+        }
         /// <summary>
         ///  Packet sent each time there is a Part error
         /// </summary>
         private void PartErrorPacket(string Message)
         {
+            DiagnosticOut("Part Error Packet Received!");
 
         }
         /// <summary>
@@ -313,6 +319,7 @@ namespace VisualVersionofService
         /// </summary>
         private void MachineErrorPacket(string Message)
         {
+            DiagnosticOut("Machine Error Packet Received!");
 
         }
 
