@@ -52,14 +52,14 @@ namespace VisualVersionofService
         private NetworkStream CamstarStream;//Stream for the main connection to and from camstar
         private TcpClient CamstarClient;//Main Connection to and from camstar
         public TopicPublisher TestPublisher;//publishes to the Pac-Light Outbound topic
-        private TopicSubscriber MainInputSubsriber;//Main subscriber subs to Pac-Lite.Inbound
-        private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is Pac-LiteDb.
+        private TopicSubscriber MainInputSubsriber;//Main subscriber subs to SNP.Inbound
+        private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
 
-        private const string SubTopicName = "Pac-Lite.Inbound";
-        private const string TestTopicName = "Pac-Lite.Outbound";
+        private const string SubTopicName = "SNP.Inbound";
+        private const string TestTopicName = "SNP.Outbound";
         private const string Broker = "tcp://10.197.10.32:61616";
-        private const string ClientID = "Pac-LiteService";
-        private const string ConsumerID = "Pac-LiteService";
+        private const string ClientID = "SNPService";
+        private const string ConsumerID = "SNPService";
         private const string CamstarUsername = "camstaruser";
         private const string CamstarPassword = "c@mst@rus3r";
         private const string QACamstarIP = "10.197.10.32";
@@ -75,17 +75,17 @@ namespace VisualVersionofService
 
         private delegate void SetTextCallback(string text);
         /// <summary>
-        ///  called whenever a mqtt message from Pac-Lite is received
+        ///  called whenever a mqtt message from SNP is received
         /// </summary>
         private void MainInputSubsriber_OnMessageReceived(string Message)
         {
             DiagnosticOut(Message);//log message and bits when it comes in.
             DiagnosticOut("Packet Header =" + Convert.ToInt32(Message[0]).ToString());
             DiagnosticOut("Packet Type=" + Convert.ToInt32(Message[1]).ToString());
-            DiagnosticOut("Pac-LiteID=" + Convert.ToInt32(Message[2]).ToString());
+            DiagnosticOut("SNPID=" + Convert.ToInt32(Message[2]).ToString());
             switch (Convert.ToInt32(Message[0]))//switch packet header
             {
-                case 1://this means its a Pac-Lite message
+                case 1://this means its a SNP message
 
                     switch (Convert.ToInt32(Message[1]))//switch Packet Type
                     {
