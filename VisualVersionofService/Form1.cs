@@ -57,10 +57,13 @@ namespace VisualVersionofService
 
         //above is winforms specific code. below should be portable to service.
         private TopicPublisher MainPublisher;//publishes to the Pac-Light Outbound topic
+
         private TopicSubscriber MainInputSubsriber;//Main subscriber subs to SNP.Inbound
         private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
         private UdpClient MDEClient;
+
         public delegate void FunctionThatFailed(string message);
+
         private const string SubTopicName = "SNP.Inbound";
         private const string TestTopicName = "SNP.Outbound";
         private const string Broker = "tcp://10.197.10.32:61616";
@@ -81,9 +84,11 @@ namespace VisualVersionofService
         private const Int32 MDEPort = 0;
         private const Int32 MDEOutPort = 12000;
         private List<Disposable> ThingsToDispose;//whenever you make something that inherits from IDisposable and needs to be disposed add to this. iterates through at end disposing of items.
-        bool fixingconnection = false;
+        private bool fixingconnection = false;
+        bool NewMachineSetupRunning = false;
 
         private delegate void SetTextCallback(string text);
+
         /// <summary>
         ///  called whenever a mqtt message from SNP is received
         /// </summary>
@@ -112,6 +117,10 @@ namespace VisualVersionofService
                             Task.Run(() => ShortTimeStatisticPacket(message));
                             break;
 
+                        case 251:
+                            Task.Run(() => OnNewMachine(message));
+                            break;
+
                         case 252:
                             Task.Run(() => CamstarTestPacket(message));
                             break;
@@ -133,11 +142,18 @@ namespace VisualVersionofService
                     break;
             }
         }
+
         /// <summary>
         /// Called whenever a new machine is detected
         /// </summary>
-        private void OnNewMachine(string message, string machineName, int snp_ID, string Line, FunctionThatFailed functionThatFailed)
+        private void OnNewMachine(string message)
         {
+            string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+            JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+            string machineName = receivedPacket["Machine"].ToString();
+            string Line = receivedPacket["Line"].ToString();
+            int snp_ID = Convert.ToInt32((byte)message[2]);
+            NewMachineSetupRunning = true;
             try //try loop in case command fails.
             {
                 StringBuilder sqlStringBuilder = new StringBuilder();
@@ -160,7 +176,7 @@ namespace VisualVersionofService
                 }
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
-            functionThatFailed(message);
+
         }
         /// <summary>
         /// Called whenever there seems to be no sql connection
@@ -169,7 +185,7 @@ namespace VisualVersionofService
         {
             if (fixingconnection)
             {
-                while(fixingconnection)
+                while (fixingconnection)
                 {
                     Thread.Sleep(100);
                 }
@@ -201,6 +217,7 @@ namespace VisualVersionofService
         /// </summary>
         private void SQLIndexSummary(string message)
         {
+            string SQLString = "";
             try //try loop in case command fails.
             {
                 string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
@@ -224,7 +241,7 @@ namespace VisualVersionofService
                 valueSection += "MachineID ";
                 sqlStringBuilder.Append(keySection + ")");
                 sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = sqlStringBuilder.ToString();//convert to string
+                SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -280,7 +297,7 @@ namespace VisualVersionofService
                 {
                     ReastablishSQL(SQLIndexSummary, message);
                 }
-                    DiagnosticOut(ex.ToString());
+                DiagnosticOut(ex.ToString());
             }
         }
 
@@ -326,6 +343,7 @@ namespace VisualVersionofService
         /// </summary>
         private void SQLDownTimePacket(string message)
         {
+            string SQLString = "";
             try //try loop in case command fails.
             {
                 string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
@@ -347,7 +365,7 @@ namespace VisualVersionofService
                 valueSection += "MachineID ";
                 sqlStringBuilder.Append(keySection + ")");
                 sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = sqlStringBuilder.ToString();//convert to string
+                SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -390,15 +408,6 @@ namespace VisualVersionofService
             }
             catch (Exception ex)
             {
-                if (ex.Message.Contains("Invalid object name"))
-                {
-                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
-                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
-                    string machineName = receivedPacket["Machine"].ToString();
-                    string line = "";
-                    int snp_ID = Convert.ToInt32((byte)message[2]);
-                    OnNewMachine(message, machineName, snp_ID, line, SQLDownTimePacket);
-                }
                 if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
                 {
                     ReastablishSQL(SQLDownTimePacket, message);
@@ -459,6 +468,7 @@ namespace VisualVersionofService
         /// </summary>
         private void SQLShortTimeStatisticPacket(string message)
         {
+            string SQLString = "";
             try //try loop in case command fails.
             {
                 string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
@@ -480,7 +490,7 @@ namespace VisualVersionofService
                 valueSection += "MachineID ";
                 sqlStringBuilder.Append(keySection + ")");
                 sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = sqlStringBuilder.ToString();//convert to string
+                SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -500,15 +510,6 @@ namespace VisualVersionofService
             }
             catch (Exception ex)
             {
-                if (ex.Message.Contains("Invalid object name"))
-                {
-                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
-                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
-                    string machineName = receivedPacket["Machine"].ToString();
-                    string line = "";
-                    int snp_ID = Convert.ToInt32((byte)message[2]);
-                    OnNewMachine(message, machineName, snp_ID, line, SQLShortTimeStatisticPacket);
-                }
                 if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
                 {
                     ReastablishSQL(SQLShortTimeStatisticPacket, message);
@@ -522,40 +523,48 @@ namespace VisualVersionofService
         /// </summary>
         private void MDEShortTimeStatisticPacket(string message)
         {
-            List<byte> bytesToSend = new List<byte>();
-            List<bool> bits = new List<bool>();
-            string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
-            JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
-            IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
-            foreach (string key in keys)
+            try
             {
-                if (key != "Machine" && key != "Theoretical" && key != "HeadNumber")
-                    bits.Add(Convert.ToInt32(receivedPacket[key] ?? '0') == 1); // if the key's value is null set bit to false, otherwise set it to the bit.
-            }
-            bytesToSend.Add((byte)'~');
-            for (int Index = 0; Index < bits.Count; Index += 8)
-            {
-                bool[] Bools;
-                if (bits.Count - Index >= 8)
+
+                List<byte> bytesToSend = new List<byte>();
+                List<bool> bits = new List<bool>();
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+                foreach (string key in keys)
                 {
-                    Bools = new bool[8];
-                    Array.Copy(bits.ToArray(), Index, Bools, 0, 8);
+                    if (key != "Machine" && key != "Theoretical" && key != "HeadNumber")
+                        bits.Add(Convert.ToInt32(receivedPacket[key] ?? '0') == 1); // if the key's value is null set bit to false, otherwise set it to the bit.
                 }
-                else
+                bytesToSend.Add((byte)'~');
+                for (int Index = 0; Index < bits.Count; Index += 8)
                 {
-                    Bools = new bool[bits.Count - Index];
-                    Array.Copy(bits.ToArray(), Index, Bools, 0, bits.Count - Index);
+                    bool[] Bools;
+                    if (bits.Count - Index >= 8)
+                    {
+                        Bools = new bool[8];
+                        Array.Copy(bits.ToArray(), Index, Bools, 0, 8);
+                    }
+                    else
+                    {
+                        Bools = new bool[bits.Count - Index];
+                        Array.Copy(bits.ToArray(), Index, Bools, 0, bits.Count - Index);
+                    }
+                    bytesToSend.Add(ConvertBoolArrayToByteLeftJustified(Bools));
                 }
-                bytesToSend.Add(ConvertBoolArrayToByteLeftJustified(Bools));
+                string Theoretical = Convert.ToString(receivedPacket["Theoretical"]);
+                bytesToSend.Add((byte)Convert.ToInt32(receivedPacket["HeadNumber"]));
+                for (int x = 0; x < Theoretical.Length; x++)
+                {
+                    bytesToSend.Add((byte)Theoretical[x]);
+                }
+                bytesToSend.Add((byte)10);//new line end character
+                MDEClient.Send(bytesToSend.ToArray(), bytesToSend.Count, MDEIP, MDEClientPort);
             }
-            string Theoretical = Convert.ToString(receivedPacket["Theoretical"]);
-            bytesToSend.Add((byte)Convert.ToInt32(receivedPacket["HeadNumber"]));
-            for (int x = 0; x < Theoretical.Length; x++)
+            catch (Exception ex)
             {
-                bytesToSend.Add((byte)Theoretical[x]);
+                DiagnosticOut(ex.ToString());
             }
-            bytesToSend.Add((byte)10);//new line end character
-            MDEClient.Send(bytesToSend.ToArray(), bytesToSend.Count, MDEIP, MDEClientPort);
         }
 
         /// <summary>
@@ -611,6 +620,7 @@ namespace VisualVersionofService
         /// </summary>
         private void SQLTestPacket(string message)
         {
+            string SQLString = "";
             DiagnosticOut("SQL Test Packet Received!");
             try //try loop in case command fails.
             {
@@ -635,7 +645,7 @@ namespace VisualVersionofService
                 valueSection += "MachineID ";
                 sqlStringBuilder.Append(keySection + ")");
                 sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = sqlStringBuilder.ToString();//convert to string
+                SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -678,18 +688,9 @@ namespace VisualVersionofService
             }
             catch (Exception ex)
             {
-                if (ex.Message.Contains("Invalid object name"))
-                {
-                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
-                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
-                    string machineName = receivedPacket["Machine"].ToString();
-                    string line = receivedPacket["Line"].ToString();
-                    int snp_ID = Convert.ToInt32((byte)message[2]);
-                    OnNewMachine(message, machineName, snp_ID, line, SQLTestPacket);
-                }
                 if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
                 {
-                    ReastablishSQL(SQLTestPacket,message);
+                    ReastablishSQL(SQLTestPacket, message);
                 }
                 DiagnosticOut(ex.ToString());
             }
