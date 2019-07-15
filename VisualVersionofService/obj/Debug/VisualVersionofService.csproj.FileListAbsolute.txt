@@ -35,3 +35,12 @@ C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofServi
 C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\obj\Debug\VisualVersionofService.csproj.CopyComplete
 C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\obj\Debug\VisualVersionofService.exe
 C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\obj\Debug\VisualVersionofService.pdb
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\obj\Debug\VisualVersionofService.csprojAssemblyReference.cache
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\Camstar.Constants.dll
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\Camstar.Exceptions.dll
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\Camstar.Util.dll
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\Camstar.Utility.dll
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\InSiteXMLClient.dll
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\SharpZipLib.dll
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\Camstar.Exceptions.pdb
+C:\Users\d.paddock\Documents\GitHub\ComunicationLayerVisual\VisualVersionofService\bin\Debug\Camstar.Util.pdb

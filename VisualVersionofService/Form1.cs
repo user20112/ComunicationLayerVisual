@@ -1,15 +1,16 @@
-﻿using Newtonsoft.Json;
+﻿using Camstar.Utility;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
-using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Linq;
 using VisualVersionofService.Comunications;
 
 namespace VisualVersionofService
@@ -52,10 +53,8 @@ namespace VisualVersionofService
         }
 
         //above is winforms specific code. below should be portable to service.
-        private NetworkStream CamstarStream;//Stream for the main connection to and from camstar
-
-        private TcpClient CamstarClient;//Main Connection to and from camstar
         private TopicPublisher TestPublisher;//publishes to the Pac-Light Outbound topic
+
         private TopicSubscriber MainInputSubsriber;//Main subscriber subs to SNP.Inbound
         private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
         private UdpClient MDEClient;
@@ -65,9 +64,9 @@ namespace VisualVersionofService
         private const string Broker = "tcp://10.197.10.32:61616";
         private const string ClientID = "SNPService";
         private const string ConsumerID = "SNPService";
-        private const string CamstarUsername = "camstaruser";
-        private const string CamstarPassword = "c@mst@rus3r";
-        private const string QACamstarIP = "10.197.10.32";
+        private const string CamstarUsername = "AutoLoader";
+        private const string CamstarPassword = "@utoLo@der";
+        private const string QACamstarIP = "10.197.10.33";
         private const string ProdCamstarIP = "0.0.0.0";
         private const string ProdENG_DBDataSource = "10.197.10.26";
         private const string QAENG_DBDataSource = "10.197.10.37";
@@ -210,6 +209,7 @@ namespace VisualVersionofService
         /// </summary>
         private void CamstarIndexSummary(string Message)
         {
+            string DataReceived;
             try
             {
                 string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
@@ -219,35 +219,14 @@ namespace VisualVersionofService
                 PacketStringBuilder.Append(CamstarUsername);//username
                 PacketStringBuilder.Append("</__name></user><password __encrypted=\"no\">");
                 PacketStringBuilder.Append(CamstarPassword);//password
-                PacketStringBuilder.Append("</password></__connect><__filter><__allowUntaggedInstances><![CDATA[3]]></__allowUntaggedInstances></__filter></__session><__service __serviceType=\"ResourceThruput\"><__utcOffset><![CDATA[-04:00:00]]></__utcOffset><__inputData><MfgOrder><__name><![CDATA[]]></__name></MfgOrder><Product><__name><![CDATA[");
+                PacketStringBuilder.Append("</password></__connect><__filter><__allowUntaggedInstances><![CDATA[3]]></__allowUntaggedInstances></__filter></__session><__service __serviceType=\"ResourceThruput\"><__utcOffset><![CDATA[-04:00:00]]></__utcOffset><__inputData><Product><__name><![CDATA[");
                 PacketStringBuilder.Append(ReceivedPacket["Naed"]);//productNaed
                 PacketStringBuilder.Append("]]></__name><__useROR><![CDATA[true]]></__useROR></Product><Qty><![CDATA[");
                 PacketStringBuilder.Append(ReceivedPacket["Good"]);//qty
                 PacketStringBuilder.Append("]]></Qty><Resource><__name><![CDATA[");
                 PacketStringBuilder.Append(ReceivedPacket["Machine"]);//resource
-                PacketStringBuilder.Append("]]></__name></Resource><ResourceGroup><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Line"]);//resourceGroup
-                PacketStringBuilder.Append("]]></__name></ResourceGroup><UOM><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["UOM"]);//UOM
-                PacketStringBuilder.Append("]]></__name>/</UOM></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
-                byte[] Bytes = Encoding.ASCII.GetBytes(PacketStringBuilder.ToString());
-                CamstarStream.Write(Bytes, 0, Bytes.Count());
-            }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
-            try
-            {
-                string msg;
-                byte[] data = new byte[1024];
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    int numBytesRead;
-                    while ((numBytesRead = CamstarStream.Read(data, 0, data.Length)) > 0)
-                    {
-                        ms.Write(data, 0, numBytesRead);
-                    }
-                    msg = Encoding.ASCII.GetString(ms.ToArray(), 0, (int)ms.Length);
-                    DiagnosticOut(msg);
-                }
+                PacketStringBuilder.Append("]]></__name></Resource></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
+                DataReceived = SendMessage(QACamstarIP, CamstarPort, PacketStringBuilder.ToString());
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
@@ -384,10 +363,13 @@ namespace VisualVersionofService
                 {
                     foreach (string key in keys)//foreach key
                     {
-                        if (key != "Machine")
+                        if (key != "HeadNumber" || key != "Theoretical")
                         {
-                            command.Parameters.AddWithValue("@" + key, 1 == Convert.ToInt32(ReceivedPacket[key]));
+                            if (key != "Machine")
+                                command.Parameters.AddWithValue("@" + key, 1 == Convert.ToInt32(ReceivedPacket[key]));
                         }
+                        else
+                            command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
                     }
                     command.Parameters.AddWithValue("@Machine", ReceivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
@@ -406,64 +388,35 @@ namespace VisualVersionofService
             List<bool> Bits = new List<bool>();
             string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
             JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
-            int x = 0;
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["DrillError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["ArmInAssemblyError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["404PartNotFound"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Good"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Bad"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["Empty"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["AttemptedToProduce"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
-            Bits.Add(Convert.ToInt32(ReceivedPacket["WrenchError"] ?? '0') == 1); x++;// if the key's value is null set bit to false, otherwise set it to the bit.
+            IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+            foreach (string key in keys)
+            {
+                if (key != "Machine" && key != "Theoretical" && key != "HeadNumber")
+                    Bits.Add(Convert.ToInt32(ReceivedPacket[key] ?? '0') == 1); // if the key's value is null set bit to false, otherwise set it to the bit.
+            }
             BytesToSend.Add((byte)'~');
             for (int Index = 0; Index < Bits.Count; Index += 8)
             {
-                BytesToSend.Add(ConvertBoolArrayToByte(Bits.ToArray()));
-            }
-            for (int y = 0; y < Bits.Count; y++)
-            {
-                if (Bits[y])
-                    DiagnosticOut("True");
+                bool[] Bools;
+                if (Bits.Count - Index >= 8)
+                {
+                    Bools = new bool[8];
+                    Array.Copy(Bits.ToArray(), Index, Bools, 0, 8);
+                }
                 else
-                    DiagnosticOut("False");
+                {
+                    Bools = new bool[Bits.Count - Index];
+                    Array.Copy(Bits.ToArray(), Index, Bools, 0, Bits.Count - Index);
+                }
+                BytesToSend.Add(ConvertBoolArrayToByteLeftJustified(Bools));
             }
+            string Theoretical = Convert.ToString(ReceivedPacket["Theoretical"]);
+            BytesToSend.Add((byte)Convert.ToInt32(ReceivedPacket["HeadNumber"]));
+            for (int x = 0; x < Theoretical.Length; x++)
+            {
+                BytesToSend.Add((byte)Theoretical[x]);
+            }
+            BytesToSend.Add((byte)10);//new line end character
             MDEClient.Send(BytesToSend.ToArray(), BytesToSend.Count, MDEIP, MDEClientPort);
         }
 
@@ -638,15 +591,6 @@ namespace VisualVersionofService
         /// </summary>
         private void TCPConnections()
         {
-            DiagnosticOut("Connecting TCP to Camstar");
-            try
-            {
-                CamstarClient = new TcpClient(QACamstarIP, CamstarPort);//connect
-                CamstarStream = CamstarClient.GetStream();//get stream to read and write to.
-                ThingsToDispose.Add(new Disposable(nameof(CamstarClient), CamstarClient));
-                ThingsToDispose.Add(new Disposable(nameof(CamstarStream), CamstarStream));
-            }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
 
         /// <summary>
@@ -692,6 +636,9 @@ namespace VisualVersionofService
             Task.Run(() => UDPConnections());//open all UDP Connections
         }
 
+        /// <summary>
+        /// Convert up to a byte to 8 bools
+        /// </summary>
         private bool[] ConvertByteToBoolArray(byte b)
         {
             bool[] result = new bool[8];
@@ -703,7 +650,10 @@ namespace VisualVersionofService
             return result;
         }
 
-        private byte ConvertBoolArrayToByte(bool[] source)
+        /// <summary>
+        /// Convert up to 8 bools to 1 byte right justfied 0001111
+        /// </summary>
+        private byte ConvertBoolArrayToByteRightJustified(bool[] source)
         {
             byte result = 0;
             // This assumes the array never contains more than 8 elements!
@@ -717,6 +667,59 @@ namespace VisualVersionofService
                 index++;
             }
             return result;
+        }
+
+        /// <summary>
+        /// Convert up to 8 bools to 1 byte right justfied 11110000
+        /// </summary>
+        private byte ConvertBoolArrayToByteLeftJustified(bool[] source)
+        {
+            byte result = 0;
+            int index = 0;
+            foreach (bool b in source)
+            {
+                // if the element is 'true' set the bit at that position
+                if (b)
+                    result |= (byte)(1 << (7 - index));
+                index++;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Send Message To Camstar
+        /// </summary>
+        private string SendMessage(string host, int port, string content)
+        {
+            var connection = new ServerConnection();
+            try
+            {
+                var connected = connection.Connect(host, port); // try connecting
+                if (!connected) return ""; // return nothing if cant connect
+                connection.Send(content); // send data
+                connection.Receive(out var result); // reviece message from server, and store into variable
+                connection.Disconnect(); // Close connection
+                var receiveMessage = FormatXml(result); // format recieved message into xml
+                try
+                {
+                    var doc = XDocument.Parse(xml);
+                    return doc.ToString();
+                }
+                catch (Exception)
+                {
+                    return xml;
+                }
+                return receiveMessage;
+            }
+            catch (Exception ex) // If an error occurred return null string
+            {
+                DiagnosticOut(ex.ToString());
+                return "";
+            }
+        }
+        private string FormatXml(string xml)
+        {
+
         }
     }
 }
