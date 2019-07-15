@@ -8,6 +8,7 @@ using System.Data.SqlClient;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml.Linq;
@@ -56,11 +57,10 @@ namespace VisualVersionofService
 
         //above is winforms specific code. below should be portable to service.
         private TopicPublisher MainPublisher;//publishes to the Pac-Light Outbound topic
-
         private TopicSubscriber MainInputSubsriber;//Main subscriber subs to SNP.Inbound
         private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
         private UdpClient MDEClient;
-
+        public delegate void FunctionThatFailed(string message);
         private const string SubTopicName = "SNP.Inbound";
         private const string TestTopicName = "SNP.Outbound";
         private const string Broker = "tcp://10.197.10.32:61616";
@@ -81,9 +81,9 @@ namespace VisualVersionofService
         private const Int32 MDEPort = 0;
         private const Int32 MDEOutPort = 12000;
         private List<Disposable> ThingsToDispose;//whenever you make something that inherits from IDisposable and needs to be disposed add to this. iterates through at end disposing of items.
+        bool fixingconnection = false;
 
         private delegate void SetTextCallback(string text);
-
         /// <summary>
         ///  called whenever a mqtt message from SNP is received
         /// </summary>
@@ -132,6 +132,68 @@ namespace VisualVersionofService
                 default:
                     break;
             }
+        }
+        /// <summary>
+        /// Called whenever a new machine is detected
+        /// </summary>
+        private void OnNewMachine(string message, string machineName, int snp_ID, string Line, FunctionThatFailed functionThatFailed)
+        {
+            try //try loop in case command fails.
+            {
+                StringBuilder sqlStringBuilder = new StringBuilder();
+                sqlStringBuilder.Append(" USE [Pac-LiteDb ] ");
+                sqlStringBuilder.Append(" CREATE TABLE [dbo].[" + machineName + "ShortTimeStatistics](");
+                sqlStringBuilder.Append("	[MachineID] [int] NULL, [Good] [bit] NULL, [Bad] [bit] NULL, [Empty] [bit] NULL, [Attempt] [bit] NULL, [Error1] [bit] NULL, [Error2] [bit] NULL, [Error3] [bit] NULL, [Error4] [bit] NULL, [Other] [bit] NULL, [HeadNumber] [int] NULL, [Theoretical] [int] NULL");
+                sqlStringBuilder.Append(" ) ON [PRIMARY] ");
+                sqlStringBuilder.Append(" CREATE TABLE [dbo].[" + machineName + "](");
+                sqlStringBuilder.Append(" 	[EntryID] [int] IDENTITY(1,1) NOT NULL,	[MachineID] [int] NULL,	[Good] [int] NULL,	[Bad] [int] NULL,	[Empty] [int] NULL,	[MachineIndexes] [int] NULL,	[NAED] [varchar](20) NULL,	[UOM] [varchar](10) NULL,	[Time] [datetime] NULL) ON [PRIMARY] ");
+                sqlStringBuilder.Append(" CREATE TABLE [dbo].[" + machineName + "DownTimes](");
+                sqlStringBuilder.Append(" 	[Time] [datetime] NULL,	[MachineReason] [varchar](255) NULL,	[UserReason] [varchar](255) NULL,	[NAED] [varchar](20) NULL,	[MachineID] [int] NULL,	[Status] [int] NULL) ON [PRIMARY]; ");
+                sqlStringBuilder.Append(" insert into MachineInfoTable (MachineName, Line, SNPID ) values( @machine , @Line , @SNPID );");
+                string SQLString = sqlStringBuilder.ToString();//convert to string
+                using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
+                {
+                    command.Parameters.AddWithValue("@machine", machineName);
+                    command.Parameters.AddWithValue("@Line", Line);
+                    command.Parameters.AddWithValue("@SNPID", snp_ID);
+                    command.ExecuteNonQuery();// execute the command returning number of rows affected
+                }
+            }
+            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            functionThatFailed(message);
+        }
+        /// <summary>
+        /// Called whenever there seems to be no sql connection
+        /// </summary>
+        private void ReastablishSQL(FunctionThatFailed functionThatFailed, string message)
+        {
+            if (fixingconnection)
+            {
+                while(fixingconnection)
+                {
+                    Thread.Sleep(100);
+                }
+            }
+            else
+            {
+                fixingconnection = true;
+                try
+                {
+                    DiagnosticOut("Connecting SQL Database");
+                    SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder();
+                    builder.DataSource = QAENG_DBDataSource;
+                    builder.UserID = ENG_DBUserID;
+                    builder.Password = ENG_DBPassword;
+                    builder.InitialCatalog = ENG_DBInitialCatalog;
+                    Console.Write("Connecting to SQL Server ... ");
+                    ENGDBConnection = new SqlConnection(builder.ConnectionString);
+                    ENGDBConnection.Open();
+                    ThingsToDispose.Add(new Disposable(nameof(ENGDBConnection), ENGDBConnection));
+                }
+                catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+                fixingconnection = false;
+            }
+            functionThatFailed(message);
         }
 
         /// <summary>
@@ -203,7 +265,23 @@ namespace VisualVersionofService
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex)
+            {
+                if (ex.Message.Contains("Invalid object name"))
+                {
+                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                    string machineName = receivedPacket["Machine"].ToString();
+                    string line = receivedPacket["Line"].ToString();
+                    int snp_ID = Convert.ToInt32((byte)message[2]);
+                    OnNewMachine(message, machineName, snp_ID, line, SQLIndexSummary);
+                }
+                if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
+                {
+                    ReastablishSQL(SQLIndexSummary, message);
+                }
+                    DiagnosticOut(ex.ToString());
+            }
         }
 
         /// <summary>
@@ -310,7 +388,23 @@ namespace VisualVersionofService
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex)
+            {
+                if (ex.Message.Contains("Invalid object name"))
+                {
+                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                    string machineName = receivedPacket["Machine"].ToString();
+                    string line = "";
+                    int snp_ID = Convert.ToInt32((byte)message[2]);
+                    OnNewMachine(message, machineName, snp_ID, line, SQLDownTimePacket);
+                }
+                if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
+                {
+                    ReastablishSQL(SQLDownTimePacket, message);
+                }
+                DiagnosticOut(ex.ToString());
+            }
         }
 
         /// <summary>
@@ -404,7 +498,23 @@ namespace VisualVersionofService
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex)
+            {
+                if (ex.Message.Contains("Invalid object name"))
+                {
+                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                    string machineName = receivedPacket["Machine"].ToString();
+                    string line = "";
+                    int snp_ID = Convert.ToInt32((byte)message[2]);
+                    OnNewMachine(message, machineName, snp_ID, line, SQLShortTimeStatisticPacket);
+                }
+                if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
+                {
+                    ReastablishSQL(SQLShortTimeStatisticPacket, message);
+                }
+                DiagnosticOut(ex.ToString());
+            }
         }
 
         /// <summary>
@@ -566,7 +676,23 @@ namespace VisualVersionofService
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex)
+            {
+                if (ex.Message.Contains("Invalid object name"))
+                {
+                    string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                    JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                    string machineName = receivedPacket["Machine"].ToString();
+                    string line = receivedPacket["Line"].ToString();
+                    int snp_ID = Convert.ToInt32((byte)message[2]);
+                    OnNewMachine(message, machineName, snp_ID, line, SQLTestPacket);
+                }
+                if (ex.Message.Contains("ExecuteNonQuery requires an open and available Connection."))
+                {
+                    ReastablishSQL(SQLTestPacket,message);
+                }
+                DiagnosticOut(ex.ToString());
+            }
         }
 
         /// <summary>
