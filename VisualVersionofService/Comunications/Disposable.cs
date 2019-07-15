@@ -6,15 +6,17 @@ using System.Threading.Tasks;
 
 namespace VisualVersionofService.Comunications
 {
-    public class Disposable
+    internal class Disposable
     {
-        public string Name;
+        public string Name = "";
         private IDisposable IDisposable;
-        public Disposable(string name,IDisposable disposable)
+
+        public Disposable(string name, IDisposable idisposable)
         {
             Name = name;
-            IDisposable = disposable;
+            IDisposable = idisposable;
         }
+
         public void Dispose()
         {
             IDisposable.Dispose();

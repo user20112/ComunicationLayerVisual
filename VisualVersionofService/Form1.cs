@@ -18,14 +18,16 @@ namespace VisualVersionofService
     public partial class Form1 : Form
     {
         public static Form1 MainForm;
+        private int ListviewIndex = 0;
 
         public Form1()
         {
             InitializeComponent();
             ColumnHeader columnHeader1 = new ColumnHeader();
             columnHeader1.Text = "Text";
-            this.DiagnosticListView.Columns.AddRange(new ColumnHeader[] { columnHeader1 });
-            this.DiagnosticListView.View = View.List;
+            DiagnosticListView.View = View.Details;
+            DiagnosticListView.Columns.Add("Column1", -2);
+            DiagnosticListView.GridLines = true;
             MainForm = this;
         }
 
@@ -45,15 +47,15 @@ namespace VisualVersionofService
             {
                 MainForm.Invoke((MethodInvoker)delegate
                 {
-                    ListViewItem item = new ListViewItem(message);
-                    MainForm.DiagnosticListView.Items.Add(item);
+                    MainForm.DiagnosticListView.Items.Add(new ListViewItem(new string[] { ListviewIndex.ToString(), message }));
                 });
+                ListviewIndex++;
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
 
         //above is winforms specific code. below should be portable to service.
-        private TopicPublisher TestPublisher;//publishes to the Pac-Light Outbound topic
+        private TopicPublisher MainPublisher;//publishes to the Pac-Light Outbound topic
 
         private TopicSubscriber MainInputSubsriber;//Main subscriber subs to SNP.Inbound
         private SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
@@ -78,48 +80,48 @@ namespace VisualVersionofService
         private const Int32 MDEClientPort = 11000;
         private const Int32 MDEPort = 0;
         private const Int32 MDEOutPort = 12000;
-        private List<Disposable> ThingsToDispose;//whenever you make a connection/connection based stream add it to this.
+        private List<Disposable> ThingsToDispose;//whenever you make something that inherits from IDisposable and needs to be disposed add to this. iterates through at end disposing of items.
 
         private delegate void SetTextCallback(string text);
 
         /// <summary>
         ///  called whenever a mqtt message from SNP is received
         /// </summary>
-        private void MainInputSubsriber_OnMessageReceived(string Message)
+        private void MainInputSubsriber_OnmessageReceived(string message)
         {
-            DiagnosticOut(Message);//log message and bits when it comes in.
-            DiagnosticOut("Packet Header =" + Convert.ToInt32(Message[0]).ToString());
-            DiagnosticOut("Packet Type=" + Convert.ToInt32(Message[1]).ToString());
-            DiagnosticOut("SNPID=" + Convert.ToInt32(Message[2]).ToString());
-            switch (Convert.ToInt32(Message[0]))//switch packet header
+            DiagnosticOut(message);//log message and bits when it comes in.
+            DiagnosticOut("Packet Header =" + Convert.ToInt32(message[0]).ToString());
+            DiagnosticOut("Packet Type=" + Convert.ToInt32(message[1]).ToString());
+            DiagnosticOut("SNPID=" + Convert.ToInt32(message[2]).ToString());
+            switch (Convert.ToInt32(message[0]))//switch packet header
             {
                 case 1://this means its a SNP message
 
-                    switch (Convert.ToInt32(Message[1]))//switch Packet Type
+                    switch (Convert.ToInt32(message[1]))//switch Packet Type
                     {
                         //run the procedure in the background dont await as we dont need the return values as it should be void.
                         case 1:
-                            Task.Run(() => IndexSummaryPacket(Message));
+                            Task.Run(() => IndexSummaryPacket(message));
                             break;
 
                         case 2:
-                            Task.Run(() => DowntimePacket(Message));
+                            Task.Run(() => DowntimePacket(message));
                             break;
 
                         case 3:
-                            Task.Run(() => ShortTimeStatisticPacket(Message));
+                            Task.Run(() => ShortTimeStatisticPacket(message));
                             break;
 
                         case 252:
-                            Task.Run(() => CamstarTestPacket(Message));
+                            Task.Run(() => CamstarTestPacket(message));
                             break;
 
                         case 253:
-                            Task.Run(() => ActiveMQTestPacket(Message));
+                            Task.Run(() => ActiveMQTestPacket(message));
                             break;
 
                         case 254:
-                            Task.Run(() => SQLTestPacket(Message));
+                            Task.Run(() => SQLTestPacket(message));
                             break;
 
                         default:
@@ -135,32 +137,32 @@ namespace VisualVersionofService
         /// <summary>
         /// SQL section of the Fifteen Minut Packet Inserts the data into a table named after the machine
         /// </summary>
-        private void SQLIndexSummary(string Message)
+        private void SQLIndexSummary(string message)
         {
             try //try loop in case command fails.
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
-                StringBuilder SQLStringBuilder = new StringBuilder();
-                SQLStringBuilder.Append("INSERT INTO " + ReceivedPacket["Machine"] + "(");
-                IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
-                string KeySection = "";
-                string ValueSection = "";
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                StringBuilder sqlStringBuilder = new StringBuilder();
+                sqlStringBuilder.Append("INSERT INTO " + receivedPacket["Machine"] + "(");
+                IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+                string keySection = "";
+                string valueSection = "";
                 foreach (string key in keys)//foreach key
                 {
                     if (key == "UOM" || key == "Good" || key == "NAED" || key == "Bad" || key == "Empty" || key == "MachineIndexes")//except machine as it is used as the table name.
                     {
-                        KeySection += key + ", ";//Make a key
-                        ValueSection += "@" + key + ", ";//and value Reference to be replaced later
+                        keySection += key + ", ";//Make a key
+                        valueSection += "@" + key + ", ";//and value Reference to be replaced later
                     }
                 }
-                KeySection += "Time, ";//Make a Time key
-                ValueSection += "@Time, ";//and value Reference to be replaced later
-                KeySection += "MachineID ";
-                ValueSection += "MachineID ";
-                SQLStringBuilder.Append(KeySection + ")");
-                SQLStringBuilder.Append("SELECT " + ValueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = SQLStringBuilder.ToString();//convert to string
+                keySection += "Time, ";//Make a Time key
+                valueSection += "@Time, ";//and value Reference to be replaced later
+                keySection += "MachineID ";
+                valueSection += "MachineID ";
+                sqlStringBuilder.Append(keySection + ")");
+                sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
+                string SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -168,27 +170,27 @@ namespace VisualVersionofService
                         switch (key)
                         {
                             case "UOM":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             case "NAED":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             case "Good":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             case "Bad":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             case "Empty":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             case "MachineIndexes":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             default:
@@ -196,7 +198,7 @@ namespace VisualVersionofService
                         }
                     }
                     command.Parameters.AddWithValue("@Time", DateTime.Now);
-                    command.Parameters.AddWithValue("@Machine", ReceivedPacket["Machine"].ToString());
+                    command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
@@ -207,26 +209,26 @@ namespace VisualVersionofService
         /// <summary>
         /// Camstar section of the Fifteen Minut Packet sends a throughput packet for the resource named for the machine.
         /// </summary>
-        private void CamstarIndexSummary(string Message)
+        private void CamstarIndexSummary(string message)
         {
             string DataReceived;
             try
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
                 StringBuilder PacketStringBuilder = new StringBuilder();
                 PacketStringBuilder.Append("<__InSite __version=\"1.1\" __encryption=\"2\"><__session><__connect><user><__name>");
                 PacketStringBuilder.Append(CamstarUsername);//username
                 PacketStringBuilder.Append("</__name></user><password __encrypted=\"no\">");
                 PacketStringBuilder.Append(CamstarPassword);//password
                 PacketStringBuilder.Append("</password></__connect><__filter><__allowUntaggedInstances><![CDATA[3]]></__allowUntaggedInstances></__filter></__session><__service __serviceType=\"ResourceThruput\"><__utcOffset><![CDATA[-04:00:00]]></__utcOffset><__inputData><Product><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Naed"]);//productNaed
+                PacketStringBuilder.Append(receivedPacket["Naed"]);//productNaed
                 PacketStringBuilder.Append("]]></__name><__useROR><![CDATA[true]]></__useROR></Product><Qty><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Good"]);//qty
+                PacketStringBuilder.Append(receivedPacket["Good"]);//qty
                 PacketStringBuilder.Append("]]></Qty><Resource><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Machine"]);//resource
+                PacketStringBuilder.Append(receivedPacket["Machine"]);//resource
                 PacketStringBuilder.Append("]]></__name></Resource></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
-                DataReceived = SendMessage(QACamstarIP, CamstarPort, PacketStringBuilder.ToString());
+                DataReceived = Sendmessage(QACamstarIP, CamstarPort, PacketStringBuilder.ToString());
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
@@ -234,78 +236,76 @@ namespace VisualVersionofService
         /// <summary>
         /// Summary packet received every fifteen minutes from the plc.
         /// </summary>
-        private void IndexSummaryPacket(string Message)
+        private void IndexSummaryPacket(string message)
         {
             DiagnosticOut("Fifteen Minute Packet Received!");
-            Task.Run(() => SQLIndexSummary(Message));
-            Task.Run(() => CamstarIndexSummary(Message));
+            Task.Run(() => SQLIndexSummary(message));
+            Task.Run(() => CamstarIndexSummary(message));
         }
 
-        private void SQLDownTimePacket(string Message)
+        /// <summary>
+        /// SQL section of the Downtime Packet records downtime to the machine downtime table.
+        /// </summary>
+        private void SQLDownTimePacket(string message)
         {
             try //try loop in case command fails.
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
-                StringBuilder SQLStringBuilder = new StringBuilder();
-                SQLStringBuilder.Append("INSERT INTO MachineDownTimes (");
-                IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
-                string KeySection = "";
-                string ValueSection = "";
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                StringBuilder sqlStringBuilder = new StringBuilder();
+                sqlStringBuilder.Append("INSERT INTO " + receivedPacket["Machine"] + "DownTimes (");
+                IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+                string keySection = "";
+                string valueSection = "";
                 foreach (string key in keys)//foreach key
                 {
-                    if (key == "UpTime" || key == "DownTime" || key == "NAED" || key == "MachineReason" || key == "UserReason")//except machine as it is used as the table name.
+                    if (key == "Status" || key == "Time" || key == "NAED" || key == "MachineReason" || key == "UserReason")//except machine as it is used as the table name.
                     {
-                        KeySection += key + ", ";//Make a key
-                        ValueSection += "@" + key + ", ";//and value Reference to be replaced later
+                        keySection += key + ", ";//Make a key
+                        valueSection += "@" + key + ", ";//and value Reference to be replaced later
                     }
                 }
-                KeySection += "MachineID ";
-                ValueSection += "MachineID ";
-                SQLStringBuilder.Append(KeySection + ")");
-                SQLStringBuilder.Append("SELECT " + ValueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = SQLStringBuilder.ToString();//convert to string
+                keySection += "MachineID ";
+                valueSection += "MachineID ";
+                sqlStringBuilder.Append(keySection + ")");
+                sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
+                string SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
                     {
                         switch (key)
                         {
-                            case "UpTime":
-                                string uptime = ReceivedPacket[key].ToString();
-                                int upday = Convert.ToInt32(uptime.Substring(0, 2));
-                                int uphour = Convert.ToInt32(uptime.Substring(3, 2));
-                                int upminute = Convert.ToInt32(uptime.Substring(6, 2));
-                                int upsecond = Convert.ToInt32(uptime.Substring(9, 2));
-                                command.Parameters.AddWithValue("@" + key, new DateTime(DateTime.Now.Year, DateTime.Now.Month, upday, uphour, upminute, upsecond));
+                            case "Status":
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
-                            case "DownTime":
-                                string Downtime = ReceivedPacket[key].ToString();
-                                int Downday = Convert.ToInt32(Downtime.Substring(0, 2));
-                                int Downhour = Convert.ToInt32(Downtime.Substring(3, 2));
-                                int Downminute = Convert.ToInt32(Downtime.Substring(6, 2));
-                                int Downsecond = Convert.ToInt32(Downtime.Substring(9, 2));
-                                command.Parameters.AddWithValue("@" + key, new DateTime(DateTime.Now.Year, DateTime.Now.Month, Downday, Downhour, Downminute, Downsecond));
+                            case "Time":
+                                string downtime = receivedPacket[key].ToString();
+                                int downday = Convert.ToInt32(downtime.Substring(0, 2));
+                                int downhour = Convert.ToInt32(downtime.Substring(3, 2));
+                                int downminute = Convert.ToInt32(downtime.Substring(6, 2));
+                                int downsecond = Convert.ToInt32(downtime.Substring(9, 2));
+                                command.Parameters.AddWithValue("@" + key, new DateTime(DateTime.Now.Year, DateTime.Now.Month, downday, downhour, downminute, downsecond));
                                 break;
 
                             case "NAED":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             case "MachineReason":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             case "UserReason":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             default:
                                 break;
                         }
                     }
-                    command.Parameters.AddWithValue("@Machine", ReceivedPacket["Machine"].ToString());
+                    command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
@@ -314,51 +314,79 @@ namespace VisualVersionofService
         }
 
         /// <summary>
+        /// Camstar section of the Downtime Packet sends a downtime packet to camstar.
+        /// </summary>
+        private void CamstarDowntimePacket(string message)
+        {
+            string DataReceived;
+            try
+            {
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                StringBuilder PacketStringBuilder = new StringBuilder();
+                PacketStringBuilder.Append("<__InSite __version=\"1.1\" __encryption=\"2\"><__session><__connect><user><__name>");
+                PacketStringBuilder.Append(CamstarUsername);//username
+                PacketStringBuilder.Append("</__name></user><password __encrypted=\"no\">");
+                PacketStringBuilder.Append(CamstarPassword);//password
+                PacketStringBuilder.Append("</password></__connect><__filter><__allowUntaggedInstances><![CDATA[3]]></__allowUntaggedInstances></__filter></__session><__service __serviceType=\"ResourceThruput\"><__utcOffset><![CDATA[-04:00:00]]></__utcOffset><__inputData><Product><__name><![CDATA[");
+                PacketStringBuilder.Append(receivedPacket["Naed"]);//productNaed
+                PacketStringBuilder.Append("]]></__name><__useROR><![CDATA[true]]></__useROR></Product><Qty><![CDATA[");
+                PacketStringBuilder.Append(receivedPacket["Good"]);//qty
+                PacketStringBuilder.Append("]]></Qty><Resource><__name><![CDATA[");
+                PacketStringBuilder.Append(receivedPacket["Machine"]);//resource
+                PacketStringBuilder.Append("]]></__name></Resource></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
+                DataReceived = Sendmessage(QACamstarIP, CamstarPort, PacketStringBuilder.ToString());
+            }
+            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+        }
+
+        /// <summary>
         ///  Packet sent each time there is a Downtime received from SNP
         /// </summary>
-        private void DowntimePacket(string Message)
+        private void DowntimePacket(string message)
         {
             DiagnosticOut("DownTime Packet Received!");
-            Task.Run(() => SQLDownTimePacket(Message));//dont care about return.
+            Task.Run(() => SQLDownTimePacket(message));//dont care about return.
+            Task.Run(() => CamstarDowntimePacket(message));//dont care about return.
         }
 
         /// <summary>
         ///  Packet sent at each index
         /// </summary>
-        private void ShortTimeStatisticPacket(string Message)
+        private void ShortTimeStatisticPacket(string message)
         {
             DiagnosticOut("Short Time Statistic Packet Received!");
-            Task.Run(() => SQLShortTimeStatisticPacket(Message));
-            Task.Run(() => MDEShortTimeStatisticPacket(Message));
+            Task.Run(() => SQLShortTimeStatisticPacket(message));
+            Task.Run(() => MDEShortTimeStatisticPacket(message));
         }
 
         /// <summary>
         ///  Packet sent at each index to sql
         /// </summary>
-        private void SQLShortTimeStatisticPacket(string Message)
+        private void SQLShortTimeStatisticPacket(string message)
         {
             try //try loop in case command fails.
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
-                StringBuilder SQLStringBuilder = new StringBuilder();
-                SQLStringBuilder.Append("INSERT INTO " + ReceivedPacket["Machine"].ToString() + "ShortTimeStatistics (");
-                IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
-                string KeySection = "[";
-                string ValueSection = "";
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                StringBuilder sqlStringBuilder = new StringBuilder();
+                sqlStringBuilder.Append("INSERT INTO " + receivedPacket["Machine"].ToString() + "ShortTimeStatistics (");
+                IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+                string keySection = "[";
+                string valueSection = "";
                 foreach (string key in keys)//foreach key
                 {
                     if (key != "Machine")//except machine as it is used as the table name.
                     {
-                        KeySection += key + "], [";//Make a key
-                        ValueSection += "@" + key + ", ";//and value Reference to be replaced later
+                        keySection += key + "], [";//Make a key
+                        valueSection += "@" + key + ", ";//and value Reference to be replaced later
                     }
                 }
-                KeySection += "MachineID] ";
-                ValueSection += "MachineID ";
-                SQLStringBuilder.Append(KeySection + ")");
-                SQLStringBuilder.Append("SELECT " + ValueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = SQLStringBuilder.ToString();//convert to string
+                keySection += "MachineID] ";
+                valueSection += "MachineID ";
+                sqlStringBuilder.Append(keySection + ")");
+                sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
+                string SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -366,12 +394,12 @@ namespace VisualVersionofService
                         if (key != "HeadNumber" || key != "Theoretical")
                         {
                             if (key != "Machine")
-                                command.Parameters.AddWithValue("@" + key, 1 == Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, 1 == Convert.ToInt32(receivedPacket[key]));
                         }
                         else
-                            command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                            command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                     }
-                    command.Parameters.AddWithValue("@Machine", ReceivedPacket["Machine"].ToString());
+                    command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
@@ -382,69 +410,69 @@ namespace VisualVersionofService
         /// <summary>
         ///  Packet sent at each index to MDE over UDP
         /// </summary>
-        private void MDEShortTimeStatisticPacket(string Message)
+        private void MDEShortTimeStatisticPacket(string message)
         {
-            List<byte> BytesToSend = new List<byte>();
-            List<bool> Bits = new List<bool>();
-            string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-            JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
-            IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+            List<byte> bytesToSend = new List<byte>();
+            List<bool> bits = new List<bool>();
+            string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+            JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+            IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
             foreach (string key in keys)
             {
                 if (key != "Machine" && key != "Theoretical" && key != "HeadNumber")
-                    Bits.Add(Convert.ToInt32(ReceivedPacket[key] ?? '0') == 1); // if the key's value is null set bit to false, otherwise set it to the bit.
+                    bits.Add(Convert.ToInt32(receivedPacket[key] ?? '0') == 1); // if the key's value is null set bit to false, otherwise set it to the bit.
             }
-            BytesToSend.Add((byte)'~');
-            for (int Index = 0; Index < Bits.Count; Index += 8)
+            bytesToSend.Add((byte)'~');
+            for (int Index = 0; Index < bits.Count; Index += 8)
             {
                 bool[] Bools;
-                if (Bits.Count - Index >= 8)
+                if (bits.Count - Index >= 8)
                 {
                     Bools = new bool[8];
-                    Array.Copy(Bits.ToArray(), Index, Bools, 0, 8);
+                    Array.Copy(bits.ToArray(), Index, Bools, 0, 8);
                 }
                 else
                 {
-                    Bools = new bool[Bits.Count - Index];
-                    Array.Copy(Bits.ToArray(), Index, Bools, 0, Bits.Count - Index);
+                    Bools = new bool[bits.Count - Index];
+                    Array.Copy(bits.ToArray(), Index, Bools, 0, bits.Count - Index);
                 }
-                BytesToSend.Add(ConvertBoolArrayToByteLeftJustified(Bools));
+                bytesToSend.Add(ConvertBoolArrayToByteLeftJustified(Bools));
             }
-            string Theoretical = Convert.ToString(ReceivedPacket["Theoretical"]);
-            BytesToSend.Add((byte)Convert.ToInt32(ReceivedPacket["HeadNumber"]));
+            string Theoretical = Convert.ToString(receivedPacket["Theoretical"]);
+            bytesToSend.Add((byte)Convert.ToInt32(receivedPacket["HeadNumber"]));
             for (int x = 0; x < Theoretical.Length; x++)
             {
-                BytesToSend.Add((byte)Theoretical[x]);
+                bytesToSend.Add((byte)Theoretical[x]);
             }
-            BytesToSend.Add((byte)10);//new line end character
-            MDEClient.Send(BytesToSend.ToArray(), BytesToSend.Count, MDEIP, MDEClientPort);
+            bytesToSend.Add((byte)10);//new line end character
+            MDEClient.Send(bytesToSend.ToArray(), bytesToSend.Count, MDEIP, MDEClientPort);
         }
 
         /// <summary>
         ///  Test Packet Heading to Camstar with XML
         /// </summary>
-        private void CamstarTestPacket(string Message)//camstar xml is the messiest packet due to the XML they are expecting
+        private void CamstarTestPacket(string message)
         {
             DiagnosticOut("CamstarTestPacket Received!");
             try
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
                 StringBuilder PacketStringBuilder = new StringBuilder();
                 PacketStringBuilder.Append("<__InSite __version=\"1.1\" __encryption=\"2\"><__session><__connect><user><__name>");
                 PacketStringBuilder.Append(CamstarUsername);//username
                 PacketStringBuilder.Append("</__name></user><password __encrypted=\"no\">");
                 PacketStringBuilder.Append(CamstarPassword);//password
                 PacketStringBuilder.Append("</password></__connect><__filter><__allowUntaggedInstances><![CDATA[3]]></__allowUntaggedInstances></__filter></__session><__service __serviceType=\"ResourceThruput\"><__utcOffset><![CDATA[-04:00:00]]></__utcOffset><__inputData><MfgOrder><__name><![CDATA[]]></__name></MfgOrder><Product><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Naed"]);//productNaed
+                PacketStringBuilder.Append(receivedPacket["Naed"]);//productNaed
                 PacketStringBuilder.Append("]]></__name><__useROR><![CDATA[true]]></__useROR></Product><Qty><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Good"]);//qty
+                PacketStringBuilder.Append(receivedPacket["Good"]);//qty
                 PacketStringBuilder.Append("]]></Qty><Resource><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Machine"]);//resource
+                PacketStringBuilder.Append(receivedPacket["Machine"]);//resource
                 PacketStringBuilder.Append("]]></__name></Resource><ResourceGroup><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["Line"]);//resourceGroup
+                PacketStringBuilder.Append(receivedPacket["Line"]);//resourceGroup
                 PacketStringBuilder.Append("]]></__name></ResourceGroup><UOM><__name><![CDATA[");
-                PacketStringBuilder.Append(ReceivedPacket["UOM"]);//UOM
+                PacketStringBuilder.Append(receivedPacket["UOM"]);//UOM
                 PacketStringBuilder.Append("]]></__name>/</UOM></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
@@ -453,17 +481,17 @@ namespace VisualVersionofService
         /// <summary>
         ///  Test Packet Heading to ActiveMQ with MQTT
         /// </summary>
-        private void ActiveMQTestPacket(string Message)
+        private void ActiveMQTestPacket(string message)
         {
             DiagnosticOut("ActiveMQTestPacketReceived!");
             try
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
                 //do whatever to the data before sending it on
 
                 //v append message header then re serialize object and send. topic setup in publisher.
-                TestPublisher.SendMessage(Message.Substring(0, 7) + JsonConvert.SerializeObject(ReceivedPacket));
+                MainPublisher.SendMessage(message.Substring(0, 7) + JsonConvert.SerializeObject(receivedPacket));
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
@@ -471,33 +499,33 @@ namespace VisualVersionofService
         /// <summary>
         ///  Test Packet Heading to ENGDB with SQL
         /// </summary>
-        private void SQLTestPacket(string Message)
+        private void SQLTestPacket(string message)
         {
             DiagnosticOut("SQL Test Packet Received!");
             try //try loop in case command fails.
             {
-                string JsonString = Message.Substring(7, Message.Length - 7);//grab json data from the end.
-                JObject ReceivedPacket = JsonConvert.DeserializeObject(JsonString) as JObject;
-                StringBuilder SQLStringBuilder = new StringBuilder();
-                SQLStringBuilder.Append("INSERT INTO " + ReceivedPacket["Machine"] + "(");
-                IList<string> keys = ReceivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
-                string KeySection = "";
-                string ValueSection = "";
+                string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
+                JObject receivedPacket = JsonConvert.DeserializeObject(jsonString) as JObject;
+                StringBuilder sqlStringBuilder = new StringBuilder();
+                sqlStringBuilder.Append("INSERT INTO " + receivedPacket["Machine"] + "(");
+                IList<string> keys = receivedPacket.Properties().Select(p => p.Name).ToList();//gets list of all keys in json object
+                string keySection = "";
+                string valueSection = "";
                 foreach (string key in keys)//foreach key
                 {
                     if (key == "UOM" || key == "Good" || key == "NAED" || key == "Bad" || key == "Empty" || key == "MachineIndexes")//except machine as it is used as the table name.
                     {
-                        KeySection += key + ", ";//Make a key
-                        ValueSection += "@" + key + ", ";//and value Reference to be replaced later
+                        keySection += key + ", ";//Make a key
+                        valueSection += "@" + key + ", ";//and value Reference to be replaced later
                     }
                 }
-                KeySection += "Time, ";//Make a Time key
-                ValueSection += "@Time, ";//and value Reference to be replaced later
-                KeySection += "MachineID ";
-                ValueSection += "MachineID ";
-                SQLStringBuilder.Append(KeySection + ")");
-                SQLStringBuilder.Append("SELECT " + ValueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
-                string SQLString = SQLStringBuilder.ToString();//convert to string
+                keySection += "Time, ";//Make a Time key
+                valueSection += "@Time, ";//and value Reference to be replaced later
+                keySection += "MachineID ";
+                valueSection += "MachineID ";
+                sqlStringBuilder.Append(keySection + ")");
+                sqlStringBuilder.Append("SELECT " + valueSection + "from MachineInfoTable" + " where MachineName = @Machine ;");//append both to the command string
+                string SQLString = sqlStringBuilder.ToString();//convert to string
                 using (SqlCommand command = new SqlCommand(SQLString, ENGDBConnection))
                 {
                     foreach (string key in keys)//foreach key
@@ -505,27 +533,27 @@ namespace VisualVersionofService
                         switch (key)
                         {
                             case "UOM":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             case "NAED":
-                                command.Parameters.AddWithValue("@" + key, ReceivedPacket[key].ToString());
+                                command.Parameters.AddWithValue("@" + key, receivedPacket[key].ToString());
                                 break;
 
                             case "Good":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             case "Bad":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             case "Empty":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             case "MachineIndexes":
-                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(ReceivedPacket[key]));
+                                command.Parameters.AddWithValue("@" + key, Convert.ToInt32(receivedPacket[key]));
                                 break;
 
                             default:
@@ -533,7 +561,7 @@ namespace VisualVersionofService
                         }
                     }
                     command.Parameters.AddWithValue("@Time", DateTime.Now);
-                    command.Parameters.AddWithValue("@Machine", ReceivedPacket["Machine"].ToString());
+                    command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
                     DiagnosticOut(rowsAffected + " row(s) inserted");//logit
                 }
@@ -550,15 +578,15 @@ namespace VisualVersionofService
             {
                 DiagnosticOut("Connecting MainSubscriber");
                 MainInputSubsriber = new TopicSubscriber(SubTopicName, Broker, ClientID, ConsumerID);
-                MainInputSubsriber.OnMessageReceived += new MessageReceivedDelegate(MainInputSubsriber_OnMessageReceived);
+                MainInputSubsriber.OnMessageReceived += new MessageReceivedDelegate(MainInputSubsriber_OnmessageReceived);
                 ThingsToDispose.Add(new Disposable(nameof(MainInputSubsriber), MainInputSubsriber));//add to reference pile so it disposes of itself properly.
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
             try
             {
                 DiagnosticOut("Connecting TestPublisher");
-                TestPublisher = new TopicPublisher(TestTopicName, Broker);
-                ThingsToDispose.Add(new Disposable(nameof(TestPublisher), TestPublisher));
+                MainPublisher = new TopicPublisher(TestTopicName, Broker);
+                ThingsToDispose.Add(new Disposable(nameof(MainPublisher), MainPublisher));
             }
             catch (Exception ex) { DiagnosticOut(ex.ToString()); }
         }
@@ -687,9 +715,9 @@ namespace VisualVersionofService
         }
 
         /// <summary>
-        /// Send Message To Camstar
+        /// Send message To Camstar and listen for a message back.
         /// </summary>
-        private string SendMessage(string host, int port, string content)
+        private string Sendmessage(string host, int port, string content)
         {
             var connection = new ServerConnection();
             try
@@ -699,27 +727,22 @@ namespace VisualVersionofService
                 connection.Send(content); // send data
                 connection.Receive(out var result); // reviece message from server, and store into variable
                 connection.Disconnect(); // Close connection
-                var receiveMessage = FormatXml(result); // format recieved message into xml
+                string receivemessage;
                 try
                 {
-                    var doc = XDocument.Parse(xml);
-                    return doc.ToString();
+                    receivemessage = XDocument.Parse(result).ToString(); // format recieved message into xml
                 }
-                catch (Exception)
+                catch
                 {
-                    return xml;
+                    receivemessage = result;
                 }
-                return receiveMessage;
+                return receivemessage;
             }
             catch (Exception ex) // If an error occurred return null string
             {
                 DiagnosticOut(ex.ToString());
                 return "";
             }
-        }
-        private string FormatXml(string xml)
-        {
-
         }
     }
 }

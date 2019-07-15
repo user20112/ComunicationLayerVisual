@@ -38,9 +38,10 @@
             // 
             this.DiagnosticListView.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.Text});
-            this.DiagnosticListView.Location = new System.Drawing.Point(13, 50);
+            this.DiagnosticListView.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.DiagnosticListView.Location = new System.Drawing.Point(0, 0);
             this.DiagnosticListView.Name = "DiagnosticListView";
-            this.DiagnosticListView.Size = new System.Drawing.Size(921, 399);
+            this.DiagnosticListView.Size = new System.Drawing.Size(946, 660);
             this.DiagnosticListView.TabIndex = 0;
             this.DiagnosticListView.UseCompatibleStateImageBehavior = false;
             this.DiagnosticListView.View = System.Windows.Forms.View.Details;
@@ -51,7 +52,7 @@
             // 
             // StartButton
             // 
-            this.StartButton.Location = new System.Drawing.Point(21, 21);
+            this.StartButton.Location = new System.Drawing.Point(790, 0);
             this.StartButton.Name = "StartButton";
             this.StartButton.Size = new System.Drawing.Size(75, 23);
             this.StartButton.TabIndex = 1;
@@ -61,7 +62,7 @@
             // 
             // StopButton
             // 
-            this.StopButton.Location = new System.Drawing.Point(102, 21);
+            this.StopButton.Location = new System.Drawing.Point(871, 0);
             this.StopButton.Name = "StopButton";
             this.StopButton.Size = new System.Drawing.Size(75, 23);
             this.StopButton.TabIndex = 2;
@@ -73,7 +74,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(946, 450);
+            this.ClientSize = new System.Drawing.Size(946, 660);
             this.Controls.Add(this.StopButton);
             this.Controls.Add(this.StartButton);
             this.Controls.Add(this.DiagnosticListView);
