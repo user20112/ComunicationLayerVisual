@@ -95,7 +95,6 @@ namespace VisualVersionofService
         {
             try
             {
-
                 DiagnosticOut(message);//log message and bits when it comes in.
                 DiagnosticOut("Packet Header =" + Convert.ToInt32(message[0]).ToString());
                 DiagnosticOut("Packet Type=" + Convert.ToInt32(message[1]).ToString());
@@ -143,7 +142,6 @@ namespace VisualVersionofService
             }
             catch
             {
-
             }
         }
 
@@ -188,8 +186,8 @@ namespace VisualVersionofService
                 }
                 DiagnosticOut(ex.ToString());
             }
-
         }
+
         /// <summary>
         /// Updates an existing machine based of machine name.
         /// </summary>
@@ -225,6 +223,7 @@ namespace VisualVersionofService
                 DiagnosticOut(ex.ToString());
             }
         }
+
         /// <summary>
         /// Deletes existing machine
         /// </summary>
@@ -237,7 +236,7 @@ namespace VisualVersionofService
             {
                 StringBuilder sqlStringBuilder = new StringBuilder();
                 sqlStringBuilder.Append(" USE [Pac-LiteDb ] ");
-                sqlStringBuilder.Append(" delete from MachineInfoTable where MachineName = @machine;");//drop the reference 
+                sqlStringBuilder.Append(" delete from MachineInfoTable where MachineName = @machine;");//drop the reference
                 sqlStringBuilder.Append("drop table [" + machineName + "];");
                 sqlStringBuilder.Append("drop table [" + machineName + "DownTimes];");
                 sqlStringBuilder.Append("drop table [" + machineName + "ShortTimeStatistics];");
@@ -257,6 +256,7 @@ namespace VisualVersionofService
                 DiagnosticOut(ex.ToString());
             }
         }
+
         /// <summary>
         /// Called whenever there seems to be no sql connection
         /// </summary>
@@ -596,7 +596,6 @@ namespace VisualVersionofService
         {
             try
             {
-
                 List<byte> bytesToSend = new List<byte>();
                 List<bool> bits = new List<bool>();
                 string jsonString = message.Substring(7, message.Length - 7);//grab json data from the end.
