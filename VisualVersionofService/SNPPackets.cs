@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
@@ -20,21 +21,29 @@ namespace VisualVersionofService
         private Form1 MainForm;
         public TopicPublisher Publisher;//publishes to the Pac-Light Outbound topic
         public UdpClient MDEClient;
-        public const string TopicName = "SNP.Outbound";
-        private const string CamstarUsername = "AutoLoader";
-        private const string CamstarPassword = "@utoLo@der";
-        private const string QACamstarIP = "10.197.10.33";
-        private const string ProdCamstarIP = "10.197.10.22";
-        private const string MDEIP = "10.197.18.163";//currently my ip for SNPing. once it is known to be working i have to get this ip from gerry.
-        private const int CamstarPort = 2881;
-        private const int MDEClientPort = 11000;
-        public const int MDEOutPort = 12000;
+        public string TopicName = "SNP.Outbound";
+        private string CamstarUsername;
+        private string CamstarPassword;
+        private string CamstarIP;
+        private string MDEIP;//currently my ip for MDEing. once it is known to be working i have to get this ip from gerry.
+        private int CamstarPort;
+        private int MDEClientPort;
+        public int MDEOutPort;
 
         public SNPPackets(Form1 mainform)
         {
             MainForm = mainform;
+            CamstarUsername = ConfigurationManager.AppSettings["CamstarUsername"];
+            CamstarPassword = ConfigurationManager.AppSettings["CamstarPassword"];
+            CamstarIP = ConfigurationManager.AppSettings["CamstarIP"];
+            MDEIP = ConfigurationManager.AppSettings["MDEIP"];
+            CamstarPort = Convert.ToInt32(ConfigurationManager.AppSettings["CamstarPort"]);
+            MDEClientPort = Convert.ToInt32(ConfigurationManager.AppSettings["MDEClientPort"]);
+            MDEOutPort = Convert.ToInt32(ConfigurationManager.AppSettings["MDEOutPort"]);
         }
+
         #endregion Variable Section
+
         #region Packet Section
 
         /// <summary>
@@ -48,12 +57,27 @@ namespace VisualVersionofService
             string Line = receivedPacket["Line"].ToString();
             string Theo = receivedPacket["Theo"].ToString();
             int snp_ID = Convert.ToInt32((byte)message[2]);
+            string Errors = "[";
+            try
+            {
+                string ErrorString = receivedPacket["Errors"].ToString();
+                string[] ErrorArray = ErrorString.Split(',');
+                foreach (string error in ErrorArray)//foreach error add it to the Errors Section
+                {
+                    Errors += error + "] [bit] NOT NULL, [";
+                }
+                Errors = Errors.Substring(0, Errors.Length - 1);
+            }
+            catch//no errors are being recorded
+            {
+                Errors = "";
+            }
             try //try loop in case command fails.
             {
                 StringBuilder sqlStringBuilder = new StringBuilder();
                 sqlStringBuilder.Append(" USE [Pac-LiteDb ] ");
                 sqlStringBuilder.Append(" CREATE TABLE [dbo].[" + machineName + "ShortTimeStatistics](");
-                sqlStringBuilder.Append("	[MachineID] [int] NULL, [Good] [bit] NULL, [Bad] [bit] NULL, [Empty] [bit] NULL, [Attempt] [bit] NULL, [Error1] [bit] NULL, [Error2] [bit] NULL, [Error3] [bit] NULL, [Error4] [bit] NULL, [Other] [bit] NULL, [HeadNumber] [int] NULL ");
+                sqlStringBuilder.Append("	[MachineID] [int] NULL, [Good] [bit] NULL, [Bad] [bit] NULL, [Empty] [bit] NULL, [Attempt] [bit] NULL, " + Errors + " [Other] [bit] NULL, [HeadNumber] [int] NULL ");
                 sqlStringBuilder.Append(" ) ON [PRIMARY] ");
                 sqlStringBuilder.Append(" CREATE TABLE [dbo].[" + machineName + "](");
                 sqlStringBuilder.Append(" 	[EntryID] [int] IDENTITY(1,1) NOT NULL,	[MachineID] [int] NULL,	[Good] [int] NULL,	[Bad] [int] NULL,	[Empty] [int] NULL,	[Indexes] [int] NULL,	[NAED] [varchar](20) NULL,	[UOM] [varchar](10) NULL,	[Time] [datetime] NULL) ON [PRIMARY] ");
@@ -76,7 +100,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(SQLShortTimeStatisticPacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -112,7 +136,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(SQLShortTimeStatisticPacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -145,7 +169,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(SQLShortTimeStatisticPacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -154,7 +178,7 @@ namespace VisualVersionofService
         /// </summary>
         public void IndexSummaryPacket(string message)
         {
-            MainForm.DiagnosticOut("Fifteen Minute Packet Received!");
+            MainForm.DiagnosticOut("Fifteen Minute Packet Received!", 3);
             Task.Run(() => SQLIndexSummary(message));
             Task.Run(() => CamstarIndexSummary(message));
         }
@@ -164,7 +188,7 @@ namespace VisualVersionofService
         /// </summary>
         public void DowntimePacket(string message)
         {
-            MainForm.DiagnosticOut("DownTime Packet Received!");
+            MainForm.DiagnosticOut("DownTime Packet Received!", 3);
             Task.Run(() => SQLDownTimePacket(message));//dont care about return.
             Task.Run(() => CamstarDowntimePacket(message));//dont care about return.
         }
@@ -174,7 +198,7 @@ namespace VisualVersionofService
         /// </summary>
         public void ShortTimeStatisticPacket(string message)
         {
-            MainForm.DiagnosticOut("Short Time Statistic Packet Received!");
+            MainForm.DiagnosticOut("Short Time Statistic Packet Received!", 3);
             Task.Run(() => SQLShortTimeStatisticPacket(message));
             Task.Run(() => MDEShortTimeStatisticPacket(message));
         }
@@ -246,7 +270,7 @@ namespace VisualVersionofService
                     command.Parameters.AddWithValue("@Time", DateTime.Now);
                     command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
-                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted");//logit
+                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted", 2);//logit
                 }
             }
             catch (Exception ex)
@@ -255,7 +279,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(SQLIndexSummary, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -281,9 +305,9 @@ namespace VisualVersionofService
                 PacketStringBuilder.Append("]]></Qty><Resource><__name><![CDATA[");
                 PacketStringBuilder.Append(receivedPacket["Machine"]);//resource
                 PacketStringBuilder.Append("]]></__name></Resource></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
-                DataReceived = Sendmessage(QACamstarIP, CamstarPort, PacketStringBuilder.ToString());
+                DataReceived = Sendmessage(CamstarIP, CamstarPort, PacketStringBuilder.ToString());
             }
-            catch (Exception ex) { MainForm.DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { MainForm.DiagnosticOut(ex.ToString(), 2); }
         }
 
         /// <summary>
@@ -354,7 +378,7 @@ namespace VisualVersionofService
                     }
                     command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
-                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted");//logit
+                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted", 2);//logit
                 }
             }
             catch (Exception ex)
@@ -363,7 +387,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(SQLDownTimePacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -389,9 +413,9 @@ namespace VisualVersionofService
                 PacketStringBuilder.Append("]]></Qty><Resource><__name><![CDATA[");
                 PacketStringBuilder.Append(receivedPacket["Machine"]);//resource
                 PacketStringBuilder.Append("]]></__name></Resource></__inputData><__perform><__eventName><![CDATA[GetWIPMsgs]]></__eventName></__perform><__requestData><CompletionMsg /><WIPMsgMgr><WIPMsgs><AcknowledgementRequired /><MsgAcknowledged /><MsgText /><PasswordRequired /><WIPMsgDetails /></WIPMsgs></WIPMsgMgr></__requestData></__service></__InSite>");
-                DataReceived = Sendmessage(QACamstarIP, CamstarPort, PacketStringBuilder.ToString());
+                DataReceived = Sendmessage(CamstarIP, CamstarPort, PacketStringBuilder.ToString());
             }
-            catch (Exception ex) { MainForm.DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { MainForm.DiagnosticOut(ex.ToString(), 1); }
         }
 
         /// <summary>
@@ -436,7 +460,7 @@ namespace VisualVersionofService
                     }
                     command.Parameters.AddWithValue("@Machine", receivedPacket["Machine"].ToString());
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
-                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted");//logit
+                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted", 2);//logit
                 }
             }
             catch (Exception ex)
@@ -445,7 +469,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(SQLShortTimeStatisticPacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -493,12 +517,13 @@ namespace VisualVersionofService
             }
             catch (Exception ex)
             {
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
-        #endregion Packet Section
-        #region Connections/Resources/Misc
 
+        #endregion Packet Section
+
+        #region Connections/Resources/Misc
 
         /// <summary>
         /// Send message To Camstar and listen for a message back.
@@ -526,7 +551,7 @@ namespace VisualVersionofService
             }
             catch (Exception ex) // If an error occurred return null string
             {
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
                 return "";
             }
         }

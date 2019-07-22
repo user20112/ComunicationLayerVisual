@@ -1,10 +1,13 @@
-﻿using System;
+﻿using Camstar.Utility;
+using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Data.SqlClient;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Linq;
 using VisualVersionofService.Comunications;
 
 namespace VisualVersionofService
@@ -37,25 +40,37 @@ namespace VisualVersionofService
             Task.Run(() => CallOnStop());
         }
 
-        public void DiagnosticOut(string message)
+        public void DiagnosticOut(string message, int LoggingLevel)
         {
             try
             {
-                MainForm.Invoke((MethodInvoker)delegate
+                string DiagnosticMessage = "";
+                for (int x = 0; x < message.Length; x++)
                 {
-                    MainForm.DiagnosticListView.Items.Add(new ListViewItem(new string[] { ListviewIndex.ToString(), message }));
-                });
-                ListviewIndex++;
+                    if (message[x] != ',')
+                        DiagnosticMessage += message[x];
+                }
+                DiagnosticMessage += ", TimeStamp:" + DateTime.Now.ToString() + ", LoggingLevelNeeded: " + LoggingLevel.ToString() + ", LoggingLevelSelected" + LogggingLevel.ToString();
+                if (LoggingLevel <= LogggingLevel)
+                {
+                    MainForm.Invoke((MethodInvoker)delegate
+                    {
+                        MainForm.DiagnosticListView.Items.Add(new ListViewItem(new string[] { ListviewIndex.ToString(), DiagnosticMessage }));
+                    });
+                    ListviewIndex++;
+                }
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
         }
 
         //above is winforms specific code. below should be portable to service.
 
         #endregion Winforms Section
 
+
         #region Variable Section
 
+        private int LogggingLevel;
         public delegate void FunctionThatFailed(string message);
 
         private delegate void SetTextCallback(string text);
@@ -90,10 +105,10 @@ namespace VisualVersionofService
         {
             try
             {
-                DiagnosticOut(message);//log message and bits when it comes in.
-                DiagnosticOut("Packet Header =" + Convert.ToInt32(message[0]).ToString());
-                DiagnosticOut("Packet Type=" + Convert.ToInt32(message[1]).ToString());
-                DiagnosticOut("SNPID=" + Convert.ToInt32(message[2]).ToString());
+                DiagnosticOut(message, 4);//log message and bits when it comes in.
+                DiagnosticOut("Packet Header =" + Convert.ToInt32(message[0]).ToString(), 3);
+                DiagnosticOut("Packet Type=" + Convert.ToInt32(message[1]).ToString(), 3);
+                DiagnosticOut("SNPID=" + Convert.ToInt32(message[2]).ToString(), 3);
                 switch (Convert.ToInt32(message[0]))//switch packet header
                 {
                     case 1://this means its a SNP message
@@ -164,26 +179,26 @@ namespace VisualVersionofService
         {
             try
             {
-                DiagnosticOut("Connecting MainSubscriber");
+                DiagnosticOut("Connecting MainSubscriber", 2);
                 MainInputSubsriber = new TopicSubscriber(SubTopicName, Broker, ClientID, ConsumerID);
                 MainInputSubsriber.OnMessageReceived += new MessageReceivedDelegate(MainInputSubsriber_OnmessageReceived);
                 ThingsToDispose.Add(new Disposable(nameof(MainInputSubsriber), MainInputSubsriber));//add to reference pile so it disposes of itself properly.
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
             try
             {
-                DiagnosticOut("Connecting SNPPublisher");
+                DiagnosticOut("Connecting SNPPublisher", 2);
                 SNPPackets.Publisher = new TopicPublisher(SNPPackets.TopicName, Broker);
                 ThingsToDispose.Add(new Disposable(nameof(SNPPackets.Publisher), SNPPackets.Publisher));
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
             try
             {
-                DiagnosticOut("Connecting SNPPublisher");
+                DiagnosticOut("Connecting SNPPublisher", 2);
                 EMPPackets.Publisher = new TopicPublisher(EMPPackets.TopicName, Broker);
                 ThingsToDispose.Add(new Disposable(nameof(EMPPackets.Publisher), EMPPackets.Publisher));
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
         }
 
         /// <summary>
@@ -194,19 +209,17 @@ namespace VisualVersionofService
             try
             {
                 // Build connection string
-                DiagnosticOut("Connecting SQL Database");
+                DiagnosticOut("Connecting SQL Database", 2);
                 SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder();
                 builder.DataSource = QAENG_DBDataSource;
                 builder.UserID = ENG_DBUserID;
                 builder.Password = ENG_DBPassword;
                 builder.InitialCatalog = ENG_DBInitialCatalog;
-                // Connect to SQL
-                Console.Write("Connecting to SQL Server ... ");
                 ENGDBConnection = new SqlConnection(builder.ConnectionString);
                 ENGDBConnection.Open();
                 ThingsToDispose.Add(new Disposable(nameof(ENGDBConnection), ENGDBConnection));
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
         }
 
         /// <summary>
@@ -221,13 +234,13 @@ namespace VisualVersionofService
         /// </summary>
         private void UDPConnections()
         {
-            DiagnosticOut("Connecting to MDE");
+            DiagnosticOut("Connecting to MDE", 2);
             try
             {
                 SNPPackets.MDEClient = new UdpClient(SNPPackets.MDEOutPort);
                 ThingsToDispose.Add(new Disposable(nameof(SNPPackets.MDEClient), SNPPackets.MDEClient));
             }
-            catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+            catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
         }
 
         /// <summary>
@@ -247,9 +260,9 @@ namespace VisualVersionofService
                 try
                 {
                     disposable.Dispose();//dispose of connections on stop they will be reestablished on start.
-                    DiagnosticOut(disposable.Name + "Has been Disconected and Disposed");
+                    DiagnosticOut(disposable.Name + "Has been Disconected and Disposed", 2);
                 }
-                catch (Exception ex) { DiagnosticOut(disposable.Name + ex.ToString()); }
+                catch (Exception ex) { DiagnosticOut(disposable.Name + ex.ToString(), 1); }
             }
         }
 
@@ -258,6 +271,7 @@ namespace VisualVersionofService
         /// </summary>
         private void CallOnStart()
         {
+            LogggingLevel = Convert.ToInt32(ConfigurationManager.AppSettings["LogggingLevel"]);
             EMPPackets = new EMPPackets(this);
             SNPPackets = new SNPPackets(this);
             try
@@ -267,10 +281,11 @@ namespace VisualVersionofService
                 Task.Run(() => SQLConnections());//open alll SQL Connections
                 Task.Run(() => TCPConnections());//open all TCPConnections
                 Task.Run(() => UDPConnections());//open all UDP Connections
+                Task.Run(() => CamstarConnect(ConfigurationManager.AppSettings["CamstarUsername"], ConfigurationManager.AppSettings["CamstarPassword"]));//open Camstar Connection
             }
             catch (Exception ex)
             {
-                DiagnosticOut(ex.ToString());
+                DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -291,23 +306,56 @@ namespace VisualVersionofService
                 fixingconnection = true;
                 try
                 {
-                    DiagnosticOut("Connecting SQL Database");
+                    DiagnosticOut("Connecting SQL Database", 2);
                     SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder();
                     builder.DataSource = QAENG_DBDataSource;
                     builder.UserID = ENG_DBUserID;
                     builder.Password = ENG_DBPassword;
                     builder.InitialCatalog = ENG_DBInitialCatalog;
-                    Console.Write("Connecting to SQL Server ... ");
                     ENGDBConnection = new SqlConnection(builder.ConnectionString);
                     ENGDBConnection.Open();
                     ThingsToDispose.Add(new Disposable(nameof(ENGDBConnection), ENGDBConnection));
                 }
-                catch (Exception ex) { DiagnosticOut(ex.ToString()); }
+                catch (Exception ex) { DiagnosticOut(ex.ToString(), 1); }
                 fixingconnection = false;
             }
             functionThatFailed(message);
         }
-
+        /// <summary>
+        /// Connects to Camstar with the username and password provided.
+        /// </summary>
+        private void CamstarConnect(string UserName, string Password)
+        {
+            MainForm.DiagnosticOut("Connecting Camstar", 2);
+            string DataReceived;
+            try
+            {
+                string PacketString = "<__InSite __encryption=\"2\" __version=\"1.1\"><__session><__connect><user><__name>" + UserName + "</__name></user><password __encrypted=\"no\">" + Password + "</password></__connect></__session></__InSite>";
+                var connection = new ServerConnection();
+                var connected = connection.Connect(ConfigurationManager.AppSettings["CamstarIP"], Convert.ToInt32(ConfigurationManager.AppSettings["CamstarPort"])); // try connecting
+                if (!connected) return; // return nothing if cant connect
+                connection.Send(PacketString.ToString()); // send data
+                connection.Receive(out var result); // reviece message from server, and store into variable
+                connection.Disconnect(); // Close connection
+                string receivemessage;
+                try
+                {
+                    receivemessage = XDocument.Parse(result).ToString(); // format recieved message into xml
+                }
+                catch
+                {
+                    receivemessage = result;
+                }
+            }
+            catch (Exception ex) { MainForm.DiagnosticOut(ex.ToString(), 1); }
+        }
+        public void ChangeConfig(string key,string value)
+        {
+            System.Configuration.Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+            config.AppSettings.Settings[key].Value = value;
+            config.Save(ConfigurationSaveMode.Modified);
+            ConfigurationManager.RefreshSection("appSettings");
+        }
         #endregion Connections/Resources/Misc
     }
 }

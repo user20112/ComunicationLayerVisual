@@ -12,7 +12,6 @@ namespace VisualVersionofService
 {
     internal class EMPPackets
     {
-
         #region Variable Section
 
         private Form1 MainForm;
@@ -23,7 +22,9 @@ namespace VisualVersionofService
         {
             MainForm = mainform;
         }
-        #endregion VariableSection
+
+        #endregion Variable Section
+
         #region Packet Section
 
         /// <summary>
@@ -31,7 +32,7 @@ namespace VisualVersionofService
         /// </summary>
         public void IndexPacket(string message)
         {
-            MainForm.DiagnosticOut("EMPIndexPacketReceived!");
+            MainForm.DiagnosticOut("EMPIndexPacketReceived!", 2);
             string SQLString = "";
             try //try loop in case command fails.
             {
@@ -112,7 +113,7 @@ namespace VisualVersionofService
                         }
                     }
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
-                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted");//logit
+                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted", 2);//logit
                 }
             }
             catch (Exception ex)
@@ -121,7 +122,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(IndexPacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -130,7 +131,7 @@ namespace VisualVersionofService
         /// </summary>
         public void WarningPacket(string message)
         {
-            MainForm.DiagnosticOut("EMPWarningPacketReceived!");
+            MainForm.DiagnosticOut("EMPWarningPacketReceived!", 3);
             Task.Run(() => SQLEMPWarningPacket(message));
             Task.Run(() => MQTTEMPWarningPacket(message));
         }
@@ -212,7 +213,7 @@ namespace VisualVersionofService
                         }
                     }
                     int rowsAffected = command.ExecuteNonQuery();// execute the command returning number of rows affected
-                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted");//logit
+                    MainForm.DiagnosticOut(rowsAffected + " row(s) inserted", 2);//logit
                 }
             }
             catch (Exception ex)
@@ -221,7 +222,7 @@ namespace VisualVersionofService
                 {
                     MainForm.ReastablishSQL(WarningPacket, message);
                 }
-                MainForm.DiagnosticOut(ex.ToString());
+                MainForm.DiagnosticOut(ex.ToString(), 1);
             }
         }
 
@@ -232,6 +233,7 @@ namespace VisualVersionofService
         {
             Publisher.SendMessage(message);//forward it to the warning topic
         }
+
         #endregion Packet Section
     }
 }
