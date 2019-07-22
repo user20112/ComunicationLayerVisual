@@ -67,10 +67,12 @@ namespace VisualVersionofService
 
         #endregion Winforms Section
 
-
         #region Variable Section
 
-        private int LogggingLevel;
+        public int LogggingLevel;
+        public bool Listening;
+        public bool Sending;
+
         public delegate void FunctionThatFailed(string message);
 
         private delegate void SetTextCallback(string text);
@@ -79,6 +81,7 @@ namespace VisualVersionofService
         public SqlConnection ENGDBConnection;//Connection to the ENGDB default db is SNPDb.
         private EMPPackets EMPPackets;
         private SNPPackets SNPPackets;
+        private ControlPackets ControlPackets;
 
         private const string SubTopicName = "SNP.Inbound";
         private const string Broker = "tcp://10.197.10.32:61616";
@@ -112,50 +115,80 @@ namespace VisualVersionofService
                 switch (Convert.ToInt32(message[0]))//switch packet header
                 {
                     case 1://this means its a SNP message
+                        if (Listening && Sending)
+                        {
+                            switch (Convert.ToInt32(message[1]))//switch Packet Type
+                            {
+                                //run the procedure in the background dont await as we dont need the return values as it should be void.
+                                case 1:
+                                    Task.Run(() => SNPPackets.IndexSummaryPacket(message));
+                                    break;
 
+                                case 2:
+                                    Task.Run(() => SNPPackets.DowntimePacket(message));
+                                    break;
+
+                                case 3:
+                                    Task.Run(() => SNPPackets.ShortTimeStatisticPacket(message));
+                                    break;
+
+                                case 252:
+                                    Task.Run(() => SNPPackets.DeleteMachinePacket(message));
+                                    break;
+
+                                case 253:
+                                    Task.Run(() => SNPPackets.EditMachinePacket(message));
+                                    break;
+
+                                case 254:
+                                    Task.Run(() => SNPPackets.NewMachinePacket(message));
+                                    Thread.Sleep(100);
+                                    break;
+
+                                default:
+                                    break;
+                            }
+                        }
+                        else
+                            DiagnosticOut("Received a packet But I am either not sending or Listening!", 2);
+                        break;
+
+                    case 2://this means its an EMP message
+                        if (Listening && Sending)
+                        {
+                            switch (Convert.ToInt32(message[1]))//switch Packet Type
+                            {
+                                //run the procedure in the background dont await as we dont need the return values as it should be void.
+                                case 1:
+                                    Task.Run(() => EMPPackets.IndexPacket(message));
+                                    break;
+
+                                case 2:
+                                    Task.Run(() => EMPPackets.WarningPacket(message));
+                                    break;
+
+                                default:
+                                    break;
+                            }
+                        }
+                        else
+                            DiagnosticOut("Received a packet But I am either not sending or Listening!", 2);
+                        break;
+
+                    case 3://this means its a Control message
                         switch (Convert.ToInt32(message[1]))//switch Packet Type
                         {
                             //run the procedure in the background dont await as we dont need the return values as it should be void.
                             case 1:
-                                Task.Run(() => SNPPackets.IndexSummaryPacket(message));
+                                Task.Run(() => ControlPackets.LoggingLevel(message));
                                 break;
 
                             case 2:
-                                Task.Run(() => SNPPackets.DowntimePacket(message));
+                                Task.Run(() => ControlPackets.Silence(message));
                                 break;
 
                             case 3:
-                                Task.Run(() => SNPPackets.ShortTimeStatisticPacket(message));
-                                break;
-
-                            case 252:
-                                Task.Run(() => SNPPackets.DeleteMachinePacket(message));
-                                break;
-
-                            case 253:
-                                Task.Run(() => SNPPackets.EditMachinePacket(message));
-                                break;
-
-                            case 254:
-                                Task.Run(() => SNPPackets.NewMachinePacket(message));
-                                Thread.Sleep(100);
-                                break;
-
-                            default:
-                                break;
-                        }
-                        break;
-
-                    case 2://this means its a SNP message
-                        switch (Convert.ToInt32(message[1]))//switch Packet Type
-                        {
-                            //run the procedure in the background dont await as we dont need the return values as it should be void.
-                            case 1:
-                                Task.Run(() => EMPPackets.IndexPacket(message));
-                                break;
-
-                            case 2:
-                                Task.Run(() => EMPPackets.WarningPacket(message));
+                                Task.Run(() => ControlPackets.Deafen(message));
                                 break;
 
                             default:
@@ -272,8 +305,11 @@ namespace VisualVersionofService
         private void CallOnStart()
         {
             LogggingLevel = Convert.ToInt32(ConfigurationManager.AppSettings["LogggingLevel"]);
+            Listening = Convert.ToInt32(ConfigurationManager.AppSettings["Listening"]) == 1;
+            Sending = Convert.ToInt32(ConfigurationManager.AppSettings["Sending"]) == 1;
             EMPPackets = new EMPPackets(this);
             SNPPackets = new SNPPackets(this);
+            ControlPackets = new ControlPackets(this);
             try
             {
                 ThingsToDispose = new List<Disposable>();
@@ -321,6 +357,7 @@ namespace VisualVersionofService
             }
             functionThatFailed(message);
         }
+
         /// <summary>
         /// Connects to Camstar with the username and password provided.
         /// </summary>
@@ -337,25 +374,27 @@ namespace VisualVersionofService
                 connection.Send(PacketString.ToString()); // send data
                 connection.Receive(out var result); // reviece message from server, and store into variable
                 connection.Disconnect(); // Close connection
-                string receivemessage;
                 try
                 {
-                    receivemessage = XDocument.Parse(result).ToString(); // format recieved message into xml
+                    DataReceived = XDocument.Parse(result).ToString(); // format recieved message into xml
                 }
                 catch
                 {
-                    receivemessage = result;
+                    DataReceived = result;
                 }
+                MainForm.DiagnosticOut(DataReceived, 5);
             }
             catch (Exception ex) { MainForm.DiagnosticOut(ex.ToString(), 1); }
         }
-        public void ChangeConfig(string key,string value)
+
+        public void ChangeConfig(string key, string value)
         {
             System.Configuration.Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
             config.AppSettings.Settings[key].Value = value;
             config.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
         }
+
         #endregion Connections/Resources/Misc
     }
 }
